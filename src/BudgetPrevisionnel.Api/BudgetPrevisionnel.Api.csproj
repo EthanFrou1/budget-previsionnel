@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <UserSecretsId>04c08668-6147-4644-a441-4f051080f12b</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <!-- Required by `dotnet ef` when this project is used as the startup project, even
+         though BudgetDbContext and its migrations live in Infrastructure. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BudgetPrevisionnel.Domain\BudgetPrevisionnel.Domain.csproj" />
+    <ProjectReference Include="..\BudgetPrevisionnel.Application\BudgetPrevisionnel.Application.csproj" />
+    <ProjectReference Include="..\BudgetPrevisionnel.Infrastructure\BudgetPrevisionnel.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

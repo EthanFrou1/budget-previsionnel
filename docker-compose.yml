@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: budget-previsionnel-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: budget_previsionnel
+      POSTGRES_USER: budget
+      POSTGRES_PASSWORD: budget_dev_only
+    ports:
+      - "5432:5432"
+    volumes:
+      - budget-previsionnel-data:/var/lib/postgresql/data
+
+volumes:
+  budget-previsionnel-data:
