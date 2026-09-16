@@ -35,4 +35,20 @@ public sealed record ImportCommitRowRequest(DateOnly Date, string RawLabel, stri
     public ImportRow ToImportRow() => new(Date, RawLabel, CleanedLabel, Amount, CategoryId, CategoryName: null);
 }
 
-public sealed record ImportCommitRequest(IReadOnlyList<ImportCommitRowRequest> Rows);
+/// <summary>FileContentBase64 is optional so older clients/tests that only cared about
+/// the rows still compile and work - CommitAsync just records no re-downloadable file
+/// for that batch when it's absent.</summary>
+public sealed record ImportCommitRequest(
+    string FileName, IReadOnlyList<ImportCommitRowRequest> Rows, string? FileContentBase64 = null);
+
+/// <summary>One past CSV import, newest first - see ImportBatch's own doc comment.
+/// HasStoredFile gates whether the frontend offers a download link: false for batches
+/// committed before file capture existed, or if the client never sent one.</summary>
+public sealed record ImportBatchResponse(
+    int Id, string FileName, DateTime ImportedAtUtc, int TotalRowsParsed, int NewTransactionsImported,
+    int DuplicatesSkipped, int InternalTransfersDetected, bool HasStoredFile)
+{
+    public static ImportBatchResponse FromEntity(ImportBatch batch) => new(
+        batch.Id, batch.FileName, batch.ImportedAtUtc, batch.TotalRowsParsed, batch.NewTransactionsImported,
+        batch.DuplicatesSkipped, batch.InternalTransfersDetected, batch.HasStoredFile);
+}

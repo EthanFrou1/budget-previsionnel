@@ -18,6 +18,15 @@ export function formatPercent(value: number): string {
   return `${percentFormatter.format(value)}%`
 }
 
+const dateTimeFormatter = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' })
+
+// Unlike formatDateFr's ISO date (no timezone info), this takes a real UTC instant
+// (e.g. ImportBatch.ImportedAtUtc, serialized with a "Z" suffix) - `new Date(iso)` is the
+// correct way to parse that, and Intl renders it in the viewer's own local time.
+export function formatDateTimeFr(isoDateTime: string): string {
+  return dateTimeFormatter.format(new Date(isoDateTime))
+}
+
 const monthFormatter = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' })
 
 // Same "parse the parts, don't hand the ISO string to `new Date`" precaution as

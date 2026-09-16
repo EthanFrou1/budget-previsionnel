@@ -69,7 +69,22 @@ export interface ImportCommitRowRequest {
 }
 
 export interface ImportCommitRequest {
+  fileName: string
   rows: ImportCommitRowRequest[]
+  fileContentBase64?: string
+}
+
+// One past CSV import for an account, newest first - returned by /import/history.
+// hasStoredFile is false for batches committed before file capture existed.
+export interface ImportBatch {
+  id: number
+  fileName: string
+  importedAtUtc: string
+  totalRowsParsed: number
+  newTransactionsImported: number
+  duplicatesSkipped: number
+  internalTransfersDetected: number
+  hasStoredFile: boolean
 }
 
 // Mirrors BudgetPrevisionnel.Api.Contracts.Categories (Api/Contracts/Categories/CategoryContracts.cs).
@@ -215,6 +230,30 @@ export interface CreateRecurringExpenseRequest {
 
 export type UpdateRecurringExpenseRequest = CreateRecurringExpenseRequest
 
+// Mirrors BudgetPrevisionnel.Api.Contracts.RecurringIncomes (Api/Contracts/RecurringIncomes/RecurringIncomeContracts.cs).
+
+export interface RecurringIncome {
+  id: number
+  label: string
+  amount: number
+  categoryId: number | null
+  categoryName: string | null
+  frequency: RecurrenceFrequency
+  startDate: string
+  endDate: string | null
+}
+
+export interface CreateRecurringIncomeRequest {
+  label: string
+  amount: number
+  categoryId: number | null
+  frequency: RecurrenceFrequency
+  startDate: string
+  endDate: string | null
+}
+
+export type UpdateRecurringIncomeRequest = CreateRecurringIncomeRequest
+
 // Mirrors BudgetPrevisionnel.Api.Contracts.Budgets (Api/Contracts/Budgets/BudgetContracts.cs).
 // ActualAmount is computed server-side from transactions in that category/month - never sent back up.
 
@@ -255,13 +294,15 @@ export interface MonthlyForecast {
   categoryLines: ForecastCategoryLine[]
   loanPayments: number
   total: number
+  totalRecurringIncome: number
+  netBalance: number
 }
 
 // Mirrors BudgetPrevisionnel.Api.Contracts.Calendar (Api/Contracts/Calendar/CalendarContracts.cs).
 // One dated occurrence (RecurringExpenseProjector/LoanProjector) rather than a summed total -
 // Budget lines aren't tied to a day, so they never appear here (see CalendarService's doc comment).
 
-export type CalendarEntryType = 'RecurringExpense' | 'Loan'
+export type CalendarEntryType = 'RecurringExpense' | 'Loan' | 'RecurringIncome'
 
 export interface CalendarEntry {
   date: string

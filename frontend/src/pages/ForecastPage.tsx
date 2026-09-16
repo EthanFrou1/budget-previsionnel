@@ -13,6 +13,7 @@ import { useApiClient } from '../auth/useApiClient'
 import { formatCurrency, formatDateFr, formatMonthFr } from '../utils/format'
 import { BudgetSection } from './BudgetSection'
 import { RecurringExpensesSection } from './RecurringExpensesSection'
+import { RecurringIncomesSection } from './RecurringIncomesSection'
 
 type Mode = 'monthly' | 'annual' | 'calendar'
 type CalendarGranularity = 'month' | 'year'
@@ -67,10 +68,13 @@ function buildMonthCells(monthValue: string): MonthCell[] {
 const CALENDAR_TYPE_LABELS: Record<CalendarEntryType, string> = {
   RecurringExpense: 'Abonnement',
   Loan: 'Crédit',
+  RecurringIncome: 'Revenu',
 }
 
 function calendarEntryClasses(type: CalendarEntryType): string {
-  return type === 'Loan' ? 'bg-accent/15 text-accent' : 'bg-info/15 text-info'
+  if (type === 'Loan') return 'bg-accent/15 text-accent'
+  if (type === 'RecurringIncome') return 'bg-positive/15 text-positive'
+  return 'bg-info/15 text-info'
 }
 
 function errorMessage(err: unknown): string {
@@ -252,6 +256,7 @@ export function ForecastPage() {
       )}
 
       <RecurringExpensesSection categories={categories} />
+      <RecurringIncomesSection categories={categories} />
     </AppLayout>
   )
 }
@@ -309,10 +314,32 @@ function MonthlyForecastView({ query }: { query: UseQueryResult<MonthlyForecast,
             <tfoot>
               <tr className="border-t border-border font-semibold text-heading">
                 <td className="py-2" colSpan={2}>
-                  Total
+                  Total des dépenses prévues
                 </td>
                 <td className="py-2 text-right">{formatCurrency(query.data.total)}</td>
               </tr>
+              {query.data.totalRecurringIncome > 0 && (
+                <tr className="text-heading">
+                  <td className="py-2" colSpan={2}>
+                    Revenus récurrents prévus
+                  </td>
+                  <td className="py-2 text-right text-positive">
+                    {formatCurrency(query.data.totalRecurringIncome)}
+                  </td>
+                </tr>
+              )}
+              {query.data.totalRecurringIncome > 0 && (
+                <tr className="border-t border-border font-semibold text-heading">
+                  <td className="py-2" colSpan={2}>
+                    Solde net prévisionnel
+                  </td>
+                  <td
+                    className={`py-2 text-right ${query.data.netBalance < 0 ? 'text-negative' : 'text-positive'}`}
+                  >
+                    {formatCurrency(query.data.netBalance)}
+                  </td>
+                </tr>
+              )}
             </tfoot>
           </table>
         </div>

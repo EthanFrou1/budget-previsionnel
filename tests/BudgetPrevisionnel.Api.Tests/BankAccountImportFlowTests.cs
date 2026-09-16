@@ -46,6 +46,7 @@ public class BankAccountImportFlowTests(CustomWebApplicationFactory factory)
         Assert.Equal("Logement", previewRow.CategoryName);
 
         var commitRequest = new ImportCommitRequest(
+            "statement.csv",
             [new ImportCommitRowRequest(previewRow.Date, previewRow.RawLabel, previewRow.CleanedLabel, previewRow.Amount, previewRow.CategoryId)]);
         var commitResponse = await client.PostAsJsonAsync($"/api/bank-accounts/{account.Id}/import/commit", commitRequest);
         Assert.Equal(HttpStatusCode.OK, commitResponse.StatusCode);
@@ -57,6 +58,31 @@ public class BankAccountImportFlowTests(CustomWebApplicationFactory factory)
         var transaction = Assert.Single(page!.Items);
         Assert.Equal(-700.00m, transaction.Amount);
         Assert.Equal("Logement", transaction.CategoryName);
+    }
+
+    [Fact]
+    public async Task CommittedImport_AppearsInTheHistoryEndpoint()
+    {
+        var client = await factory.CreateAuthenticatedClientAsync();
+
+        var accountResponse = await client.PostAsJsonAsync(
+            "/api/bank-accounts", new CreateBankAccountRequest("BoursoBank", "Compte courant", null));
+        var account = await accountResponse.Content.ReadFromJsonAsync<BankAccountResponse>();
+
+        var previewResponse = await PreviewSampleCsvAsync(client, account!.Id);
+        var previewRows = await previewResponse.Content.ReadFromJsonAsync<List<ImportRowResponse>>();
+        var previewRow = Assert.Single(previewRows!);
+        var commitRequest = new ImportCommitRequest(
+            "statement.csv",
+            [new ImportCommitRowRequest(previewRow.Date, previewRow.RawLabel, previewRow.CleanedLabel, previewRow.Amount, previewRow.CategoryId)]);
+        await client.PostAsJsonAsync($"/api/bank-accounts/{account.Id}/import/commit", commitRequest);
+
+        var historyResponse = await client.GetAsync($"/api/bank-accounts/{account.Id}/import/history");
+        Assert.Equal(HttpStatusCode.OK, historyResponse.StatusCode);
+        var history = await historyResponse.Content.ReadFromJsonAsync<List<ImportBatchResponse>>();
+        var batch = Assert.Single(history!);
+        Assert.Equal("statement.csv", batch.FileName);
+        Assert.Equal(1, batch.NewTransactionsImported);
     }
 
     [Fact]
@@ -76,6 +102,62 @@ public class BankAccountImportFlowTests(CustomWebApplicationFactory factory)
     }
 
     [Fact]
+    public async Task CommittedImportWithFileContent_CanBeReDownloaded()
+    {
+        var client = await factory.CreateAuthenticatedClientAsync();
+
+        var accountResponse = await client.PostAsJsonAsync(
+            "/api/bank-accounts", new CreateBankAccountRequest("BoursoBank", "Compte courant", null));
+        var account = await accountResponse.Content.ReadFromJsonAsync<BankAccountResponse>();
+
+        var previewResponse = await PreviewSampleCsvAsync(client, account!.Id);
+        var previewRows = await previewResponse.Content.ReadFromJsonAsync<List<ImportRowResponse>>();
+        var previewRow = Assert.Single(previewRows!);
+        var csvBytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(SampleCsv);
+        var commitRequest = new ImportCommitRequest(
+            "statement.csv",
+            [new ImportCommitRowRequest(previewRow.Date, previewRow.RawLabel, previewRow.CleanedLabel, previewRow.Amount, previewRow.CategoryId)],
+            Convert.ToBase64String(csvBytes));
+        await client.PostAsJsonAsync($"/api/bank-accounts/{account.Id}/import/commit", commitRequest);
+
+        var historyResponse = await client.GetAsync($"/api/bank-accounts/{account.Id}/import/history");
+        var history = await historyResponse.Content.ReadFromJsonAsync<List<ImportBatchResponse>>();
+        var batch = Assert.Single(history!);
+        Assert.True(batch.HasStoredFile);
+
+        var fileResponse = await client.GetAsync($"/api/bank-accounts/{account.Id}/import/history/{batch.Id}/file");
+        Assert.Equal(HttpStatusCode.OK, fileResponse.StatusCode);
+        var downloadedBytes = await fileResponse.Content.ReadAsByteArrayAsync();
+        Assert.Equal(csvBytes, downloadedBytes);
+    }
+
+    [Fact]
+    public async Task CommittedImportWithoutFileContent_HasNoStoredFileAndDownloadReturns404()
+    {
+        var client = await factory.CreateAuthenticatedClientAsync();
+
+        var accountResponse = await client.PostAsJsonAsync(
+            "/api/bank-accounts", new CreateBankAccountRequest("BoursoBank", "Compte courant", null));
+        var account = await accountResponse.Content.ReadFromJsonAsync<BankAccountResponse>();
+
+        var previewResponse = await PreviewSampleCsvAsync(client, account!.Id);
+        var previewRows = await previewResponse.Content.ReadFromJsonAsync<List<ImportRowResponse>>();
+        var previewRow = Assert.Single(previewRows!);
+        var commitRequest = new ImportCommitRequest(
+            "statement.csv",
+            [new ImportCommitRowRequest(previewRow.Date, previewRow.RawLabel, previewRow.CleanedLabel, previewRow.Amount, previewRow.CategoryId)]);
+        await client.PostAsJsonAsync($"/api/bank-accounts/{account.Id}/import/commit", commitRequest);
+
+        var historyResponse = await client.GetAsync($"/api/bank-accounts/{account.Id}/import/history");
+        var history = await historyResponse.Content.ReadFromJsonAsync<List<ImportBatchResponse>>();
+        var batch = Assert.Single(history!);
+        Assert.False(batch.HasStoredFile);
+
+        var fileResponse = await client.GetAsync($"/api/bank-accounts/{account.Id}/import/history/{batch.Id}/file");
+        Assert.Equal(HttpStatusCode.NotFound, fileResponse.StatusCode);
+    }
+
+    [Fact]
     public async Task Commit_RowExcludedFromThePreview_IsNeverImported()
     {
         var client = await factory.CreateAuthenticatedClientAsync();
@@ -87,7 +169,7 @@ public class BankAccountImportFlowTests(CustomWebApplicationFactory factory)
         await PreviewSampleCsvAsync(client, account!.Id);
 
         // The user reviewed the preview and excluded the only row - commit sends an empty list.
-        var commitRequest = new ImportCommitRequest([]);
+        var commitRequest = new ImportCommitRequest("statement.csv", []);
         var commitResponse = await client.PostAsJsonAsync($"/api/bank-accounts/{account.Id}/import/commit", commitRequest);
         var summary = await commitResponse.Content.ReadFromJsonAsync<ImportSummaryResponse>();
         Assert.Equal(0, summary!.NewTransactionsImported);

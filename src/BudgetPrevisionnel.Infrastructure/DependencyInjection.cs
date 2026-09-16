@@ -8,6 +8,7 @@ using BudgetPrevisionnel.Application.Dashboard;
 using BudgetPrevisionnel.Application.Forecasting;
 using BudgetPrevisionnel.Application.Loans;
 using BudgetPrevisionnel.Application.RecurringExpenses;
+using BudgetPrevisionnel.Application.RecurringIncomes;
 using BudgetPrevisionnel.Application.SavingsGoals;
 using BudgetPrevisionnel.Application.Transactions;
 using BudgetPrevisionnel.Application.Users;
@@ -41,6 +42,7 @@ public static class DependencyInjection
         services.AddScoped<ITransactionRepository, TransactionRepository>();
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<ICategoryRuleRepository, CategoryRuleRepository>();
+        services.AddScoped<IImportBatchRepository, ImportBatchRepository>();
         services.AddScoped<IBankStatementParser, BoursoBankCsvParser>();
         services.AddScoped<BankStatementImportService>();
         services.AddScoped<CategoryService>();
@@ -51,9 +53,11 @@ public static class DependencyInjection
         services.AddScoped<ISavingsGoalRepository, SavingsGoalRepository>();
         services.AddScoped<ILoanRepository, LoanRepository>();
         services.AddScoped<IRecurringExpenseRepository, RecurringExpenseRepository>();
+        services.AddScoped<IRecurringIncomeRepository, RecurringIncomeRepository>();
         services.AddScoped<SavingsGoalService>();
         services.AddScoped<LoanService>();
         services.AddScoped<RecurringExpenseService>();
+        services.AddScoped<RecurringIncomeService>();
 
         services.AddScoped<IBudgetRepository, BudgetRepository>();
         services.AddScoped<BudgetService>();

@@ -76,7 +76,11 @@ try
         {
             if (corsOrigins.Length > 0)
             {
-                policy.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod();
+                // Content-Disposition isn't in the browser's CORS-safelisted response
+                // headers by default - without exposing it explicitly, the frontend's
+                // import file download couldn't read the original file name back out.
+                policy.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod()
+                    .WithExposedHeaders("Content-Disposition");
             }
         });
     });

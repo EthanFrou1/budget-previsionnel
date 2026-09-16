@@ -67,3 +67,35 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
 
   return (await response.json()) as T
 }
+
+/** For binary downloads (e.g. re-fetching a stored import's CSV) - apiFetch always
+ * calls response.json(), which would fail on a file body. fileName comes from the
+ * response's Content-Disposition header when the server set one. */
+export async function apiFetchBlob(
+  path: string,
+  options: { token?: string | null } = {},
+): Promise<{ blob: Blob; fileName: string | null }> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+    },
+  })
+
+  if (!response.ok) {
+    const problem: (ProblemDetails & ValidationProblemDetails) | null = await response
+      .json()
+      .catch(() => null)
+    throw new ApiError(
+      response.status,
+      problem?.title ?? 'Request failed',
+      problem?.detail ?? response.statusText,
+      problem?.errors,
+    )
+  }
+
+  const disposition = response.headers.get('Content-Disposition')
+  const match = disposition ? /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition) : null
+  const fileName = match ? decodeURIComponent(match[1]) : null
+
+  return { blob: await response.blob(), fileName }
+}

@@ -3,6 +3,7 @@ using System;
 using BudgetPrevisionnel.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace BudgetPrevisionnel.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(BudgetDbContext))]
-    partial class BudgetDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260916083646_AddImportBatches")]
+    partial class AddImportBatches
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -250,9 +253,6 @@ namespace BudgetPrevisionnel.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("DuplicatesSkipped")
                         .HasColumnType("integer");
-
-                    b.Property<byte[]>("FileContent")
-                        .HasColumnType("bytea");
 
                     b.Property<string>("FileName")
                         .IsRequired()

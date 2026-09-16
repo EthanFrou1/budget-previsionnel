@@ -1,6 +1,7 @@
 using BudgetPrevisionnel.Application.Budgets;
 using BudgetPrevisionnel.Application.Loans;
 using BudgetPrevisionnel.Application.RecurringExpenses;
+using BudgetPrevisionnel.Application.RecurringIncomes;
 
 namespace BudgetPrevisionnel.Application.Forecasting;
 
@@ -11,12 +12,16 @@ namespace BudgetPrevisionnel.Application.Forecasting;
 /// fills in categories the user hasn't explicitly budgeted - so a rent RecurringExpense
 /// doesn't get double-counted once the user also sets a Logement Budget line. Loan
 /// payments have no CategoryId in the Domain model, so they're a separate total, not
-/// folded into a category line.
+/// folded into a category line. RecurringIncome is summed separately into
+/// TotalRecurringIncome/NetBalance - additive to Total, never subtracted from it or
+/// folded into CategoryLines, so Total keeps meaning "planned outflow" for every existing
+/// caller.
 /// </summary>
 public sealed class ForecastService(
     IBudgetRepository budgetRepository,
     IRecurringExpenseRepository recurringExpenseRepository,
-    ILoanRepository loanRepository)
+    ILoanRepository loanRepository,
+    IRecurringIncomeRepository recurringIncomeRepository)
 {
     public async Task<MonthlyForecast> GetMonthlyForecastAsync(
         int userId, DateOnly month, CancellationToken cancellationToken = default)
@@ -26,6 +31,7 @@ public sealed class ForecastService(
         var budgets = await budgetRepository.GetForMonthAsync(userId, normalizedMonth, cancellationToken);
         var recurringExpenses = await recurringExpenseRepository.GetAllForUserAsync(userId, cancellationToken);
         var loans = await loanRepository.GetAllForUserAsync(userId, cancellationToken);
+        var recurringIncomes = await recurringIncomeRepository.GetAllForUserAsync(userId, cancellationToken);
 
         var budgetedCategoryIds = budgets.Select(b => b.CategoryId).ToHashSet();
 
@@ -49,11 +55,16 @@ public sealed class ForecastService(
         var loanPayments = loans.Where(l => l.EndDate >= normalizedMonth).Sum(l => l.MonthlyPayment);
         var total = lines.Sum(l => l.Amount) + loanPayments;
 
+        var totalRecurringIncome = recurringIncomes
+            .Sum(income => RecurringIncomeProjector.GetMonthlyContribution(income, normalizedMonth));
+
         return new MonthlyForecast(
             normalizedMonth,
             lines.OrderBy(l => l.CategoryLabel, StringComparer.OrdinalIgnoreCase).ToList(),
             loanPayments,
-            total);
+            total,
+            totalRecurringIncome,
+            NetBalance: totalRecurringIncome - total);
     }
 
     public async Task<IReadOnlyList<MonthlyForecast>> GetAnnualForecastAsync(

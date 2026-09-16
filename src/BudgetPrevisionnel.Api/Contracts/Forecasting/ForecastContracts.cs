@@ -9,9 +9,10 @@ public sealed record ForecastCategoryLineResponse(int? CategoryId, string? Categ
 }
 
 public sealed record MonthlyForecastResponse(
-    DateOnly Month, IReadOnlyList<ForecastCategoryLineResponse> CategoryLines, decimal LoanPayments, decimal Total)
+    DateOnly Month, IReadOnlyList<ForecastCategoryLineResponse> CategoryLines, decimal LoanPayments, decimal Total,
+    decimal TotalRecurringIncome, decimal NetBalance)
 {
     public static MonthlyForecastResponse FromForecast(MonthlyForecast forecast) => new(
         forecast.Month, forecast.CategoryLines.Select(ForecastCategoryLineResponse.FromLine).ToList(),
-        forecast.LoanPayments, forecast.Total);
+        forecast.LoanPayments, forecast.Total, forecast.TotalRecurringIncome, forecast.NetBalance);
 }

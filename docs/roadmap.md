@@ -1151,6 +1151,160 @@ le repository/contrôleur) - reprise et implémentée entièrement dans cette se
   `Category`/`BankAccount` en particulier (jointures EF jamais exécutées contre un vrai
   Postgres pour cette fonctionnalité).
 
+### Revenus récurrents (fait)
+Demande d'Ethan, partie du même échange que le tri des colonnes : pourquoi une transaction
+positive (salaire, virement entrant) ne peut pas être marquée comme récurrente sur
+`/transactions` ? Réponse trouvée dans le code : décision délibérée du Lot 6/12
+(`RecurringMarkCell` : `if (transaction.isInternalTransfer || transaction.amount >= 0)
+return null`, commentaire "RecurringExpense has no income counterpart in the domain
+model"). Plutôt que de laisser la limitation, ajout du pendant complet côté revenus.
+
+- **`RecurringIncome`** (Domain/Application/Infrastructure/API) : mirror quasi exact de
+  `RecurringExpense` à chaque couche (entité, `IRecurringIncomeRepository`/
+  `RecurringIncomeRepository`, `RecurringIncomeService` avec la même validation "montant
+  strictement positif, la direction est encodée par le nom de l'entité", contrôleur REST
+  `/api/recurring-incomes` en CRUD, contrats + validators FluentValidation). Table
+  `RecurringIncomes` séparée (migration `AddRecurringIncomes`), pas une colonne "type" sur
+  `RecurringExpense` - `RecurringExpense` reste nommée et pensée comme expense-only,
+  cohérent avec sa doc existante.
+- **`RecurringIncomeProjector`** : copie volontaire (pas une extraction partagée) de
+  `RecurringExpenseProjector` - même convention déjà en place dans ce repo ("extract only
+  past two consumers", voir la note de `TransactionsPage` sur `FREQUENCY_LABELS`), et
+  `RecurringExpense`/`RecurringIncome` sont exactement les deux consommateurs de ce calcul
+  d'occurrences (hebdomadaire/mensuel/annuel).
+- **Intégration Prévisionnel** : `MonthlyForecast` gagne `TotalRecurringIncome` et
+  `NetBalance` (= revenus - `Total`), **additifs** - `Total`/`CategoryLines` gardent
+  exactement leur sens actuel ("dépenses prévues"), aucun consommateur existant n'est
+  affecté par un changement de signe caché. Le tableau mensuel du Prévisionnel affiche
+  "Revenus récurrents prévus" et "Solde net prévisionnel" seulement quand il y a un revenu
+  récurrent ce mois-ci (sinon ces lignes n'apparaissent pas). La vue annuelle n'a pas été
+  retouchée (reste "Total dépenses" par mois) - pas demandé, aurait changé le sens de
+  cette vue au-delà de ce qui était utile ici.
+- **Intégration Calendrier** : `CalendarEntryType` gagne `RecurringIncome`, même
+  granularité par date que `RecurringExpense`/`Loan`. Couleur dédiée côté frontend
+  (`bg-positive/15 text-positive`, cohérent avec la convention "vert = argent qui rentre"
+  déjà utilisée pour les montants positifs dans les tableaux).
+- **`TransactionsPage`** : `RecurringMarkCell` n'exclut plus que les virements internes ;
+  le signe du montant choisit l'endpoint (`/api/recurring-expenses` vs
+  `/api/recurring-incomes`) et le texte du bouton/dialogue ("dépense récurrente" vs
+  "revenu récurrent").
+- Validé : 185 tests xUnit backend (19 nouveaux : `RecurringIncomeServiceTests`,
+  `RecurringIncomeProjectorTests`, cas revenu ajoutés à `ForecastServiceTests`/
+  `CalendarServiceTests`) et 108 tests Vitest/RTL frontend (`RecurringIncomesSection.test.tsx`,
+  cas ajoutés à `ForecastPage.test.tsx`/`TransactionsPage.test.tsx`). **Testé en conditions
+  réelles** (Docker était disponible cette fois) : migration `AddRecurringIncomes` appliquée
+  au vrai Postgres local, création/liste/suppression d'un revenu récurrent, vérification que
+  `/api/forecast/monthly` et `/api/calendar/monthly` le reflètent bien, via un utilisateur et
+  des données jetables supprimés immédiatement après (`DELETE FROM "Users" WHERE Email = ...`,
+  cascade sur `RecurringIncomes`).
+- Point ouvert non traité : le bouton "+" sur une transaction crée toujours un enregistrement
+  sans lien persistant vers la transaction source (déjà vrai pour les dépenses avant ce lot) -
+  `isDone` ne survit pas au rechargement de la page.
+
+### Historique des imports CSV (fait)
+Demande d'Ethan à la suite du lot précédent : voir l'historique des fichiers CSV importés
+sur `/accounts`. Rien n'existait côté backend - `BankStatementImportService.CommitAsync` ne
+persistait que les `Transaction`, jamais une trace du fichier importé lui-même
+(nom, date, compteurs) ; le nom de fichier était même déjà disponible côté frontend
+(`ImportCsvForm`'s `file.name`) mais jeté après l'appel de preview, jamais envoyé au commit.
+
+- **`ImportBatch`** (nouvelle entité) : `BankAccountId`, `FileName`, `ImportedAtUtc`,
+  et les 4 compteurs d'`ImportSummary` dupliqués au moment du commit (pas de FK vers les
+  `Transaction` créées - une liste de compteurs suffit, pas besoin de savoir *lesquelles*
+  transactions viennent de quel import). Cascade depuis `BankAccount` (même convention que
+  `Transaction`) - supprimer un compte supprime son historique d'import avec lui. Migration
+  `AddImportBatches`.
+- **`BankStatementImportService.CommitAsync`** gagne un paramètre `fileName` (le frontend
+  l'envoie maintenant dans `ImportCommitRequest`) et enregistre un `ImportBatch` après la
+  détection de virements internes - **même quand `NewTransactionsImported` est 0** (import
+  entièrement composé de doublons) : l'utilisateur a quand même choisi un fichier et lancé un
+  import, l'historique doit pouvoir expliquer pourquoi rien de nouveau n'est apparu, pas
+  seulement les imports "réussis". Nouvelle méthode `GetHistoryAsync` (vérifie la propriété du
+  compte, même pattern que le reste du service) exposée en `GET
+  /api/bank-accounts/{id}/import/history`, triée du plus récent au plus ancien.
+- **Frontend** : `ImportCsvForm` retient le nom de fichier au moment où le *preview* réussit
+  (`previewFileName`, pas une lecture directe de `file.name` au moment du commit - l'input
+  fichier reste interactif tant que la modale de review est ouverte, un changement de fichier
+  pendant la review aurait désynchronisé le nom envoyé des lignes réellement réviewées).
+  `ImportHistorySection` (nouveau, sous le formulaire d'import de chaque compte) : liste
+  toujours affichée (même convention que `RecurringExpensesSection` : état vide explicite
+  plutôt que rien), invalidée après chaque commit.
+- **Bug trouvé en conditions réelles** : après avoir généré la migration
+  `AddImportBatches`, un premier test contre le vrai Postgres local a échoué avec `relation
+  "ImportBatches" does not exist` - la migration avait été *générée* mais jamais *appliquée*
+  (`dotnet ef database update` oublié après `migrations add`). Résultat instructif : comme
+  `TransactionRepository.AddRangeAsync` fait son propre `SaveChangesAsync` avant l'écriture de
+  l'`ImportBatch`, la transaction importée avait bien été persistée malgré l'erreur 500
+  renvoyée au client - un import "en échec" avait donc quand même laissé une transaction en
+  base. Un second essai après la migration a été correctement compté comme doublon (0 nouvelle
+  transaction, 1 doublon), confirmant que la déduplication protège bien ce genre de
+  scénario, mais ça vaut la peine qu'Ethan le sache : une erreur 500 sur `/import/commit` ne
+  garantit pas que rien n'a été écrit.
+- Validé : 210 tests xUnit backend (11 nouveaux sur `BankStatementImportServiceTests` +
+  1 sur `BankAccountImportFlowTests`) et 108 tests Vitest/RTL frontend (2 nouveaux, plus 9
+  tests existants adaptés - la nouvelle requête de `ImportHistorySection` se déclenche dès
+  qu'un compte s'affiche, ce qui décalait les files `mockResolvedValueOnce` de plusieurs
+  tests existants). **Testé en conditions réelles** contre le vrai Postgres local une fois
+  la migration réellement appliquée : commit avec nom de fichier, vérification de
+  `/import/history`, nettoyage immédiat des données jetables.
+
+### Téléchargement du fichier importé (fait)
+Demande d'Ethan à la suite du lot précédent : pouvoir rouvrir/retélécharger le CSV
+exact qui a été importé, pas seulement voir son nom dans l'historique.
+`ImportBatch` ne gardait que des métadonnées (nom, date, compteurs) - le contenu du
+fichier n'était jamais persisté nulle part, jeté juste après le parsing en mémoire.
+
+- **`ImportBatch.FileContent`** (`byte[]?`, `bytea` nullable en base - migration
+  `AddImportBatchFileContent`) : nul pour les imports antérieurs à ce lot (colonne
+  ajoutée après coup) ou si le client n'envoie rien. `ImportBatchResponse.HasStoredFile`
+  reflète cette présence côté frontend pour savoir s'il faut proposer le lien.
+- **Transport du fichier au commit** : `/import/commit` restait un body JSON (pas
+  multipart, pour ne pas complexifier le binding ASP.NET Core d'une liste + un fichier
+  dans le même formulaire) - `ImportCommitRequest` gagne un `FileContentBase64` optionnel,
+  validé côté `ImportCommitRequestValidator` (`Convert.TryFromBase64String`, pour éviter
+  qu'une entrée invalide remonte en `FormatException` non gérée plutôt qu'en 400 propre -
+  même raisonnement que la validation des lignes juste au-dessus). Le frontend garde
+  désormais le `File` complet (pas juste son nom) entre preview et commit, le relit en
+  base64 par blocs de 32 Ko avant l'envoi (`String.fromCharCode(...bytes)` sur un tableau
+  complet peut dépasser la pile d'appels sur un relevé volumineux).
+- **`GET /import/history/{batchId}/file`** (nouveau) : renvoie les octets stockés avec le
+  nom de fichier d'origine (`ImportBatchNotFoundException` → 404 si le batch n'existe pas,
+  n'appartient pas à ce compte, ou n'a pas de fichier stocké - même exception pour les
+  deux derniers cas, le résultat pour l'appelant est identique). `ImportBatchRepository`
+  a une méthode dédiée `GetByIdForAccountAsync` pour ce cas, séparée de
+  `GetForAccountAsync` : cette dernière ne charge plus les octets (projection explicite
+  sans `FileContent`) puisqu'elle tourne à chaque affichage de `/accounts` et n'a besoin
+  que des compteurs - sans ça, chaque chargement de page aurait tiré en mémoire tous les
+  CSV jamais importés sur le compte.
+- **Téléchargement côté frontend** : un `<a href>` classique ne peut pas porter le header
+  `Authorization` qu'exige l'API, donc `useFileDownload` (nouveau hook, à côté de
+  `useApiClient`) récupère le fichier en `Blob` via `apiFetchBlob` (nouvelle fonction dans
+  `api/client.ts`, parallèle à `apiFetch` mais qui ne fait pas `response.json()`) puis le
+  fait sauvegarder via une balise `<a>` jetable + `URL.createObjectURL`. Le nom de fichier
+  d'origine est repris du header `Content-Disposition` de la réponse - qui n'est pas dans
+  la liste des headers exposés par défaut en CORS, ajout explicite de
+  `WithExposedHeaders("Content-Disposition")` à la policy CORS (`Program.cs`), sans quoi
+  `response.headers.get(...)` aurait toujours renvoyé `null` en cross-origin malgré un
+  header bien présent sur le fil.
+- **Bloqueur trouvé en conditions réelles** : un `dotnet run` d'une session précédente
+  tournait encore (même symptôme que le lot précédent - voir plus haut), verrouillant les
+  DLL et empêchant `dotnet ef migrations add`. Confirmé avant de tuer le processus
+  (`tasklist`, PID 58884) puisqu'Ethan l'avait probablement laissé ouvert pour tester
+  `/accounts` en live (il regardait cette page au moment de la demande).
+- Validé : 5 nouveaux tests `BankStatementImportServiceTests` (contenu stocké/absent,
+  téléchargement, batch introuvable, compte d'un autre utilisateur) + 2 nouveaux
+  `BankAccountImportFlowTests` (aller-retour upload→commit→téléchargement en HTTP réel,
+  et cas sans fichier stocké → 404), tous passés contre le vrai Postgres local
+  (Testcontainers) une fois la migration appliquée. Frontend : 3 nouveaux tests
+  (`apiFetchBlob` parsing du nom de fichier, présence/absence du lien "Télécharger", clic
+  déclenchant bien `createObjectURL`/`revokeObjectURL`), 1 test existant adapté
+  (`fileContentBase64` maintenant dans le body du commit). 218 tests xUnit backend et 112
+  tests Vitest/RTL frontend au total, tous verts. **Pas de vérification visuelle
+  navigateur** (pas d'automatisation navigateur disponible dans cet environnement) - à
+  faire par Ethan : relancer `dotnet run` (tué pour cette session) et confirmer que le
+  bouton "Télécharger" fonctionne réellement dans le navigateur, notamment que le fichier
+  téléchargé s'ouvre correctement.
+
 ### Lot 16 — Déploiement
 - VPS OVH ou Railway/Fly.io, pipeline CI/CD, application automatique des
   migrations au déploiement.

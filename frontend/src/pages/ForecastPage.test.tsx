@@ -23,6 +23,8 @@ function buildAnnual(year: number): MonthlyForecast[] {
     categoryLines: [],
     loanPayments: 0,
     total: (i + 1) * 100,
+    totalRecurringIncome: 0,
+    netBalance: -(i + 1) * 100,
   }))
 }
 
@@ -39,6 +41,8 @@ function renderPage(
     categoryLines: [],
     loanPayments: 0,
     total: 0,
+    totalRecurringIncome: 0,
+    netBalance: 0,
   }
   const annual = overrides.annual ?? buildAnnual(currentYear)
   const calendarMonthly = overrides.calendarMonthly ?? []
@@ -50,7 +54,7 @@ function renderPage(
     if (p === `/api/forecast/monthly?month=${currentMonth}`) return monthly
     if (p.startsWith('/api/forecast/monthly?month=')) {
       const month = p.split('=')[1]
-      return { month, categoryLines: [], loanPayments: 0, total: 0 }
+      return { month, categoryLines: [], loanPayments: 0, total: 0, totalRecurringIncome: 0, netBalance: 0 }
     }
     if (p === `/api/forecast/annual?year=${currentYear}`) return annual
     if (p.startsWith('/api/forecast/annual?year=')) return []
@@ -60,6 +64,7 @@ function renderPage(
     if (p.startsWith('/api/calendar/annual?year=')) return []
     if (p.startsWith('/api/budgets')) return []
     if (p === '/api/recurring-expenses') return []
+    if (p === '/api/recurring-incomes') return []
     return undefined
   })
 
@@ -95,6 +100,8 @@ describe('ForecastPage', () => {
         ],
         loanPayments: 250,
         total: 1190,
+        totalRecurringIncome: 0,
+        netBalance: -1190,
       },
     })
 
@@ -104,6 +111,26 @@ describe('ForecastPage', () => {
     expect(screen.getByText('Récurrent')).toBeInTheDocument()
     expect(screen.getByText('Remboursements de crédits')).toBeInTheDocument()
     expect(screen.getByText(/1\s*190,00/)).toBeInTheDocument()
+    // No recurring income this month - the "Revenus"/"Solde net" rows don't render at all.
+    expect(screen.queryByText('Revenus récurrents prévus')).not.toBeInTheDocument()
+  })
+
+  it('shows recurring income and the net balance when there is recurring income', async () => {
+    renderPage({
+      monthly: {
+        month: currentMonth,
+        categoryLines: [{ categoryId: 10, categoryLabel: 'Logement', amount: 900, source: 'Budget' }],
+        loanPayments: 0,
+        total: 900,
+        totalRecurringIncome: 2200,
+        netBalance: 1300,
+      },
+    })
+
+    expect(await screen.findByText('Revenus récurrents prévus')).toBeInTheDocument()
+    expect(screen.getByText(/2\s*200,00/)).toBeInTheDocument()
+    expect(screen.getByText('Solde net prévisionnel')).toBeInTheDocument()
+    expect(screen.getByText(/1\s*300,00/)).toBeInTheDocument()
   })
 
   it('shows an empty state when nothing is forecast for the month', async () => {
@@ -153,6 +180,7 @@ describe('ForecastPage', () => {
       if (p === '/api/categories') return []
       if (p.startsWith('/api/budgets')) return []
       if (p === '/api/recurring-expenses') return []
+      if (p === '/api/recurring-incomes') return []
       return undefined
     })
 
@@ -183,6 +211,7 @@ describe('ForecastPage', () => {
           isLastOccurrence: false,
         },
         { date: todayIso, label: 'Prêt auto', amount: 300, type: 'Loan', isLastOccurrence: true },
+        { date: todayIso, label: 'Salaire', amount: 2200, type: 'RecurringIncome', isLastOccurrence: false },
       ],
     })
     await screen.findByText('Aucune dépense prévue ce mois-ci.')
@@ -192,6 +221,7 @@ describe('ForecastPage', () => {
 
     expect(await screen.findByText('Netflix')).toBeInTheDocument()
     expect(screen.getByText('Prêt auto')).toBeInTheDocument()
+    expect(screen.getByText('Salaire')).toBeInTheDocument()
     expect(screen.getByText('(dernière)')).toBeInTheDocument()
   })
 

@@ -168,13 +168,15 @@ export function TransactionsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['transactions'] }),
   })
 
-  // Quick-create shortcut, not a persistent link: pre-fills a new RecurringExpense from
-  // this transaction (label/amount/category/date) and reuses the existing endpoint as-is.
-  // The created expense isn't tied back to this transaction afterwards - editing or
-  // deleting it happens on /forecast like any other recurring expense.
-  const createRecurringExpenseMutation = useMutation({
-    mutationFn: ({ transaction, frequency }: { transaction: Transaction; frequency: RecurrenceFrequency }) =>
-      apiClient('/api/recurring-expenses', {
+  // Quick-create shortcut, not a persistent link: pre-fills a new RecurringExpense (amount
+  // < 0) or RecurringIncome (amount > 0) from this transaction (label/amount/category/date)
+  // and reuses the existing endpoint as-is. The created record isn't tied back to this
+  // transaction afterwards - editing or deleting it happens on /forecast like any other
+  // recurring expense/income.
+  const createRecurringMutation = useMutation({
+    mutationFn: ({ transaction, frequency }: { transaction: Transaction; frequency: RecurrenceFrequency }) => {
+      const endpoint = transaction.amount < 0 ? '/api/recurring-expenses' : '/api/recurring-incomes'
+      return apiClient(endpoint, {
         method: 'POST',
         body: {
           label: transaction.cleanedLabel ?? transaction.rawLabel,
@@ -184,8 +186,12 @@ export function TransactionsPage() {
           startDate: transaction.date,
           endDate: null,
         },
+      })
+    },
+    onSuccess: (_data, { transaction }) =>
+      queryClient.invalidateQueries({
+        queryKey: [transaction.amount < 0 ? 'recurring-expenses' : 'recurring-incomes'],
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['recurring-expenses'] }),
   })
 
   const categories = [...(categoriesQuery.data ?? [])].sort((a, b) => a.name.localeCompare(b.name))
@@ -389,9 +395,7 @@ export function TransactionsPage() {
                   <td className="px-3 py-2">
                     <RecurringMarkCell
                       transaction={transaction}
-                      onCreate={(frequency) =>
-                        createRecurringExpenseMutation.mutateAsync({ transaction, frequency })
-                      }
+                      onCreate={(frequency) => createRecurringMutation.mutateAsync({ transaction, frequency })}
                     />
                   </td>
                 </tr>
@@ -509,12 +513,12 @@ function NotesCell({
 }
 
 /**
- * Quick-create shortcut for turning an expense transaction into a RecurringExpense
- * without retyping its label/amount/category/date - only offered for actual expenses
- * (negative amount, not an internal transfer), since RecurringExpense has no income
- * counterpart in the domain model. Doesn't track whether a transaction was already
- * "used" this way past the current page load (no persistent link is kept) - `isDone`
- * only prevents an accidental duplicate create in the same session.
+ * Quick-create shortcut for turning a transaction into a RecurringExpense (negative
+ * amount) or a RecurringIncome (positive amount) without retyping its label/amount/
+ * category/date - not offered for internal transfers (a transfer between the user's own
+ * accounts is neither). Doesn't track whether a transaction was already "used" this way
+ * past the current page load (no persistent link is kept) - `isDone` only prevents an
+ * accidental duplicate create in the same session.
  */
 function RecurringMarkCell({
   transaction,
@@ -526,7 +530,7 @@ function RecurringMarkCell({
   const [isOpen, setIsOpen] = useState(false)
   const [isDone, setIsDone] = useState(false)
 
-  if (transaction.isInternalTransfer || transaction.amount >= 0) {
+  if (transaction.isInternalTransfer) {
     return null
   }
 
@@ -534,12 +538,15 @@ function RecurringMarkCell({
     return <span className="text-xs text-positive">Ajoutée ✓</span>
   }
 
+  const isExpense = transaction.amount < 0
+  const label = transaction.cleanedLabel ?? transaction.rawLabel
+
   return (
     <>
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        aria-label={`Marquer ${transaction.cleanedLabel ?? transaction.rawLabel} comme dépense récurrente`}
+        aria-label={`Marquer ${label} comme ${isExpense ? 'dépense récurrente' : 'revenu récurrent'}`}
         className="rounded border border-border px-2 py-1 text-xs text-body hover:bg-overlay"
       >
         +
@@ -579,6 +586,7 @@ function RecurringMarkDialog({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const label = transaction.cleanedLabel ?? transaction.rawLabel
+  const isExpense = transaction.amount < 0
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -616,7 +624,7 @@ function RecurringMarkDialog({
         className="w-full max-w-sm rounded-lg border border-border bg-surface p-4 shadow-xl"
       >
         <h3 id="recurring-mark-dialog-title" className="font-display font-medium text-heading">
-          Marquer comme récurrente
+          Marquer comme {isExpense ? 'dépense récurrente' : 'revenu récurrent'}
         </h3>
         <p className="mt-1 text-sm text-body">
           {label} · {formatCurrency(Math.abs(transaction.amount))}

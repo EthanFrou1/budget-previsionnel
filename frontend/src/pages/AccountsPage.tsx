@@ -1,11 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ApiError } from '../api/client'
-import type { BankAccount, Category, ImportCommitRequest, ImportRow, ImportSummary } from '../api/types'
+import type { BankAccount, Category, ImportBatch, ImportCommitRequest, ImportRow, ImportSummary } from '../api/types'
 import { AppLayout } from '../components/AppLayout'
 import { useConfirm } from '../components/confirmContext'
-import { useApiClient } from '../auth/useApiClient'
-import { formatCurrency, formatDateFr } from '../utils/format'
+import { useApiClient, useFileDownload } from '../auth/useApiClient'
+import { formatCurrency, formatDateFr, formatDateTimeFr } from '../utils/format'
 
 // Only bank with a registered IBankStatementParser on the backend
 // (BoursoBankCsvParser.BankName) - importing against any other value fails with a 400
@@ -16,6 +16,18 @@ const SUPPORTED_BANKS = ['BoursoBank']
 
 function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : 'Une erreur est survenue.'
+}
+
+// Chunked rather than String.fromCharCode(...bytes) in one call - spreading a large
+// typed array as call arguments can blow the stack on a big statement export.
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+  }
+  return btoa(binary)
 }
 
 export function AccountsPage() {
@@ -338,6 +350,79 @@ function AccountCard({ account, onChanged }: { account: BankAccount; onChanged: 
       </div>
 
       <ImportCsvForm accountId={account.id} />
+      <ImportHistorySection accountId={account.id} />
+    </div>
+  )
+}
+
+/**
+ * Newest-first log of past CSV imports for this account (ImportBatch, recorded server-side
+ * on each commit) - lets a re-import be a deliberate choice rather than a guess at what
+ * already landed. Always rendered, even empty, same convention as RecurringExpensesSection.
+ */
+function ImportHistorySection({ accountId }: { accountId: number }) {
+  const apiClient = useApiClient()
+  const downloadFile = useFileDownload()
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [downloadingBatchId, setDownloadingBatchId] = useState<number | null>(null)
+
+  const historyQuery = useQuery({
+    queryKey: ['import-history', accountId],
+    queryFn: () => apiClient<ImportBatch[]>(`/api/bank-accounts/${accountId}/import/history`),
+  })
+
+  async function handleDownload(batch: ImportBatch) {
+    setDownloadError(null)
+    setDownloadingBatchId(batch.id)
+    try {
+      await downloadFile(`/api/bank-accounts/${accountId}/import/history/${batch.id}/file`, batch.fileName)
+    } catch (err) {
+      setDownloadError(errorMessage(err))
+    } finally {
+      setDownloadingBatchId(null)
+    }
+  }
+
+  return (
+    <div className="border-t border-border pt-3">
+      <h3 className="text-sm font-medium text-body">Historique des imports</h3>
+
+      {historyQuery.isPending && <p className="mt-1 text-sm text-muted">Chargement…</p>}
+
+      {historyQuery.data && historyQuery.data.length === 0 && (
+        <p className="mt-1 text-sm text-muted">Aucun import pour l'instant.</p>
+      )}
+
+      {downloadError && (
+        <p role="alert" className="mt-2 rounded bg-negative/10 px-3 py-2 text-sm text-negative">
+          {downloadError}
+        </p>
+      )}
+
+      {historyQuery.data && historyQuery.data.length > 0 && (
+        <ul className="mt-1 divide-y divide-border text-sm">
+          {historyQuery.data.map((batch) => (
+            <li key={batch.id} className="flex items-center justify-between gap-2 py-1.5 text-body">
+              <span>
+                <span className="font-medium text-heading">{batch.fileName}</span> ·{' '}
+                {formatDateTimeFr(batch.importedAtUtc)} — {batch.newTransactionsImported} importée(s),{' '}
+                {batch.duplicatesSkipped} doublon(s) ignoré(s), {batch.internalTransfersDetected} virement(s)
+                interne(s) détecté(s)
+              </span>
+              {batch.hasStoredFile && (
+                <button
+                  type="button"
+                  onClick={() => handleDownload(batch)}
+                  disabled={downloadingBatchId === batch.id}
+                  className="shrink-0 whitespace-nowrap text-sm font-medium text-accent hover:underline disabled:opacity-50"
+                >
+                  {downloadingBatchId === batch.id ? 'Téléchargement…' : 'Télécharger'}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -350,6 +435,12 @@ function ImportCsvForm({ accountId }: { accountId: number }) {
   const [error, setError] = useState<string | null>(null)
   const [summary, setSummary] = useState<ImportSummary | null>(null)
   const [previewRows, setPreviewRows] = useState<ImportRow[] | null>(null)
+  // Snapshotted from `file` at the moment preview succeeds, not read live from `file` -
+  // the file input stays interactive while the preview dialog is open, so `file` itself
+  // could change out from under the rows being reviewed. Kept as the whole File (not just
+  // its name) so its bytes can be re-read and sent along on commit, letting the import be
+  // re-downloaded later from the history list.
+  const [previewFile, setPreviewFile] = useState<File | null>(null)
   const [isPreviewing, setIsPreviewing] = useState(false)
   // A ref, not just the isPreviewing state: a fast double-click can fire this handler
   // twice before React re-renders the button's disabled attribute, racing two previews
@@ -374,6 +465,7 @@ function ImportCsvForm({ accountId }: { accountId: number }) {
         body: formData,
       })
       setPreviewRows(rows)
+      setPreviewFile(file)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -384,10 +476,12 @@ function ImportCsvForm({ accountId }: { accountId: number }) {
 
   function handleCommitted(result: ImportSummary) {
     setPreviewRows(null)
+    setPreviewFile(null)
     setSummary(result)
     setFile(null)
     formRef.current?.reset()
     queryClient.invalidateQueries({ queryKey: ['transactions'] })
+    queryClient.invalidateQueries({ queryKey: ['import-history', accountId] })
   }
 
   return (
@@ -425,11 +519,15 @@ function ImportCsvForm({ accountId }: { accountId: number }) {
         </p>
       )}
 
-      {previewRows && (
+      {previewRows && previewFile && (
         <ImportPreviewDialog
           accountId={accountId}
+          file={previewFile}
           rows={previewRows}
-          onCancel={() => setPreviewRows(null)}
+          onCancel={() => {
+            setPreviewRows(null)
+            setPreviewFile(null)
+          }}
           onCommitted={handleCommitted}
         />
       )}
@@ -452,11 +550,13 @@ interface ImportPreviewEntry {
  */
 function ImportPreviewDialog({
   accountId,
+  file,
   rows,
   onCancel,
   onCommitted,
 }: {
   accountId: number
+  file: File
   rows: ImportRow[]
   onCancel: () => void
   onCommitted: (summary: ImportSummary) => void
@@ -498,6 +598,7 @@ function ImportPreviewDialog({
     setError(null)
     try {
       const body: ImportCommitRequest = {
+        fileName: file.name,
         rows: entries
           .filter((e) => e.included)
           .map((e) => ({
@@ -507,6 +608,7 @@ function ImportPreviewDialog({
             amount: e.row.amount,
             categoryId: e.categoryId,
           })),
+        fileContentBase64: await fileToBase64(file),
       }
       const summary = await apiClient<ImportSummary>(`/api/bank-accounts/${accountId}/import/commit`, {
         method: 'POST',
@@ -552,8 +654,8 @@ function ImportPreviewDialog({
                   <th className="w-8 py-2" />
                   <th className="py-2">Date</th>
                   <th className="py-2">Libellé</th>
-                  <th className="py-2 text-right">Montant</th>
-                  <th className="py-2">Catégorie</th>
+                  <th className="py-2 pr-4 text-right">Montant</th>
+                  <th className="py-2 pl-4">Catégorie</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -571,13 +673,13 @@ function ImportPreviewDialog({
                     <td className="whitespace-nowrap py-2 text-body">{formatDateFr(entry.row.date)}</td>
                     <td className="py-2 text-heading">{entry.row.cleanedLabel ?? entry.row.rawLabel}</td>
                     <td
-                      className={`whitespace-nowrap py-2 text-right font-medium ${
+                      className={`whitespace-nowrap py-2 pr-4 text-right font-medium ${
                         entry.row.amount < 0 ? 'text-negative' : 'text-positive'
                       }`}
                     >
                       {formatCurrency(entry.row.amount)}
                     </td>
-                    <td className="py-2">
+                    <td className="py-2 pl-4">
                       <select
                         aria-label={`Catégorie de ${entry.row.cleanedLabel ?? entry.row.rawLabel}`}
                         value={entry.categoryId?.toString() ?? ''}

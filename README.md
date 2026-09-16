@@ -63,11 +63,15 @@ validé — voir `docs/roadmap.md#revue-avant-import-fait` pour le détail :
 - `POST /api/bank-accounts/{id}/import/preview` (multipart, champ `file`) parse
   l'export CSV, déduplique contre les transactions déjà en base et propose une
   catégorie par ligne, sans rien persister.
-- `POST /api/bank-accounts/{id}/import/commit` (`{ rows: [...] }`) reçoit
-  exactement les lignes que l'utilisateur a gardées (certaines potentiellement
-  exclues, d'autres avec une catégorie modifiée) et les enregistre — la
-  déduplication est revérifiée à ce stade au cas où quelque chose aurait changé
-  entre les deux appels.
+- `POST /api/bank-accounts/{id}/import/commit` (`{ rows: [...], fileContentBase64?
+  }`) reçoit exactement les lignes que l'utilisateur a gardées (certaines
+  potentiellement exclues, d'autres avec une catégorie modifiée) et les
+  enregistre — la déduplication est revérifiée à ce stade au cas où quelque
+  chose aurait changé entre les deux appels. `fileContentBase64` (optionnel) est
+  stocké tel quel sur l'`ImportBatch` correspondant.
+- `GET /api/bank-accounts/{id}/import/history/{batchId}/file` retélécharge le
+  CSV exact d'un import passé — 404 si ce batch n'a pas de fichier stocké (import
+  antérieur à cette fonctionnalité, ou `fileContentBase64` non envoyé).
 
 Le pipeline (voir `docs/roadmap.md#lot-3--import-bancaire-fait`) détecte aussi les
 virements entre comptes du même utilisateur, une fois les transactions

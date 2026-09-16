@@ -2,6 +2,7 @@ using BudgetPrevisionnel.Application.Forecasting;
 using BudgetPrevisionnel.Application.Tests.Budgets;
 using BudgetPrevisionnel.Application.Tests.Loans;
 using BudgetPrevisionnel.Application.Tests.RecurringExpenses;
+using BudgetPrevisionnel.Application.Tests.RecurringIncomes;
 using BudgetPrevisionnel.Domain.Entities;
 using BudgetPrevisionnel.Domain.Enums;
 
@@ -12,20 +13,21 @@ public class ForecastServiceTests
     private static readonly Category Logement = new() { Id = 2, Name = "Logement", IsSystemDefault = true };
     private static readonly Category Alimentation = new() { Id = 1, Name = "Alimentation", IsSystemDefault = true };
 
-    private static (FakeBudgetRepository Budgets, FakeRecurringExpenseRepository RecurringExpenses, FakeLoanRepository Loans, ForecastService Service)
-        CreateSubject()
+    private static (FakeBudgetRepository Budgets, FakeRecurringExpenseRepository RecurringExpenses, FakeLoanRepository Loans,
+        FakeRecurringIncomeRepository RecurringIncomes, ForecastService Service) CreateSubject()
     {
         var budgets = new FakeBudgetRepository();
         var recurringExpenses = new FakeRecurringExpenseRepository();
         var loans = new FakeLoanRepository();
-        var service = new ForecastService(budgets, recurringExpenses, loans);
-        return (budgets, recurringExpenses, loans, service);
+        var recurringIncomes = new FakeRecurringIncomeRepository();
+        var service = new ForecastService(budgets, recurringExpenses, loans, recurringIncomes);
+        return (budgets, recurringExpenses, loans, recurringIncomes, service);
     }
 
     [Fact]
     public async Task GetMonthlyForecastAsync_BudgetLine_IsIncludedAsBudgetSource()
     {
-        var (budgets, _, _, service) = CreateSubject();
+        var (budgets, _, _, _, service) = CreateSubject();
         var month = new DateOnly(2026, 9, 1);
         budgets.Seed(1, month, Logement, plannedAmount: 800m);
 
@@ -40,7 +42,7 @@ public class ForecastServiceTests
     [Fact]
     public async Task GetMonthlyForecastAsync_RecurringExpenseWithoutBudget_FillsInAsRecurringExpenseSource()
     {
-        var (_, recurringExpenses, _, service) = CreateSubject();
+        var (_, recurringExpenses, _, _, service) = CreateSubject();
         var month = new DateOnly(2026, 9, 1);
         await recurringExpenses.AddAsync(new RecurringExpense
         {
@@ -58,7 +60,7 @@ public class ForecastServiceTests
     [Fact]
     public async Task GetMonthlyForecastAsync_CategoryHasBothBudgetAndRecurringExpense_BudgetWinsNoDoubleCounting()
     {
-        var (budgets, recurringExpenses, _, service) = CreateSubject();
+        var (budgets, recurringExpenses, _, _, service) = CreateSubject();
         var month = new DateOnly(2026, 9, 1);
         budgets.Seed(1, month, Logement, plannedAmount: 900m); // user's deliberate override
         await recurringExpenses.AddAsync(new RecurringExpense
@@ -77,7 +79,7 @@ public class ForecastServiceTests
     [Fact]
     public async Task GetMonthlyForecastAsync_UncategorizedRecurringExpense_IsIncludedWithNullLabel()
     {
-        var (_, recurringExpenses, _, service) = CreateSubject();
+        var (_, recurringExpenses, _, _, service) = CreateSubject();
         var month = new DateOnly(2026, 9, 1);
         await recurringExpenses.AddAsync(new RecurringExpense
         {
@@ -96,7 +98,7 @@ public class ForecastServiceTests
     [Fact]
     public async Task GetMonthlyForecastAsync_MultipleRecurringExpensesSameCategory_AreSummed()
     {
-        var (_, recurringExpenses, _, service) = CreateSubject();
+        var (_, recurringExpenses, _, _, service) = CreateSubject();
         var month = new DateOnly(2026, 9, 1);
         await recurringExpenses.AddAsync(new RecurringExpense
         {
@@ -118,7 +120,7 @@ public class ForecastServiceTests
     [Fact]
     public async Task GetMonthlyForecastAsync_LoanActiveInMonth_AddedToLoanPaymentsAndTotal()
     {
-        var (_, _, loans, service) = CreateSubject();
+        var (_, _, loans, _, service) = CreateSubject();
         var month = new DateOnly(2026, 9, 1);
         await loans.AddAsync(new Loan
         {
@@ -136,7 +138,7 @@ public class ForecastServiceTests
     [Fact]
     public async Task GetMonthlyForecastAsync_LoanEndedBeforeMonth_ExcludedFromLoanPayments()
     {
-        var (_, _, loans, service) = CreateSubject();
+        var (_, _, loans, _, service) = CreateSubject();
         await loans.AddAsync(new Loan
         {
             UserId = 1, Label = "Pret solde", PrincipalAmount = 10000m, RemainingAmount = 0m,
@@ -151,7 +153,7 @@ public class ForecastServiceTests
     [Fact]
     public async Task GetMonthlyForecastAsync_LoanEndingDuringMonth_StillIncluded()
     {
-        var (_, _, loans, service) = CreateSubject();
+        var (_, _, loans, _, service) = CreateSubject();
         await loans.AddAsync(new Loan
         {
             UserId = 1, Label = "Dernier mois", PrincipalAmount = 10000m, RemainingAmount = 300m,
@@ -166,7 +168,7 @@ public class ForecastServiceTests
     [Fact]
     public async Task GetMonthlyForecastAsync_CombinesBudgetRecurringExpenseAndLoan_IntoOneTotal()
     {
-        var (budgets, recurringExpenses, loans, service) = CreateSubject();
+        var (budgets, recurringExpenses, loans, _, service) = CreateSubject();
         var month = new DateOnly(2026, 9, 1);
         budgets.Seed(1, month, Alimentation, plannedAmount: 400m);
         await recurringExpenses.AddAsync(new RecurringExpense
@@ -186,9 +188,44 @@ public class ForecastServiceTests
     }
 
     [Fact]
+    public async Task GetMonthlyForecastAsync_RecurringIncome_AddsToTotalRecurringIncomeNotToCategoryLines()
+    {
+        var (_, _, _, recurringIncomes, service) = CreateSubject();
+        var month = new DateOnly(2026, 9, 1);
+        await recurringIncomes.AddAsync(new RecurringIncome
+        {
+            UserId = 1, Label = "Salaire", Amount = 2200m,
+            Frequency = RecurrenceFrequency.Monthly, StartDate = new DateOnly(2026, 1, 1)
+        });
+
+        var forecast = await service.GetMonthlyForecastAsync(1, month);
+
+        Assert.Equal(2200m, forecast.TotalRecurringIncome);
+        Assert.Empty(forecast.CategoryLines); // never folded into the expense category lines
+        Assert.Equal(0m, forecast.Total); // Total keeps meaning "planned outflow", unaffected by income
+    }
+
+    [Fact]
+    public async Task GetMonthlyForecastAsync_NetBalance_IsRecurringIncomeMinusTotal()
+    {
+        var (budgets, _, _, recurringIncomes, service) = CreateSubject();
+        var month = new DateOnly(2026, 9, 1);
+        budgets.Seed(1, month, Logement, plannedAmount: 800m);
+        await recurringIncomes.AddAsync(new RecurringIncome
+        {
+            UserId = 1, Label = "Salaire", Amount = 2200m,
+            Frequency = RecurrenceFrequency.Monthly, StartDate = new DateOnly(2026, 1, 1)
+        });
+
+        var forecast = await service.GetMonthlyForecastAsync(1, month);
+
+        Assert.Equal(2200m - 800m, forecast.NetBalance);
+    }
+
+    [Fact]
     public async Task GetAnnualForecastAsync_ReturnsTwelveMonths()
     {
-        var (_, _, _, service) = CreateSubject();
+        var (_, _, _, _, service) = CreateSubject();
 
         var forecasts = await service.GetAnnualForecastAsync(1, 2026);
 

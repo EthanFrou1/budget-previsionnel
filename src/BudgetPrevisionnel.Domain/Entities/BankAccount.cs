@@ -13,4 +13,5 @@ public class BankAccount
     public string? Iban { get; set; }
 
     public ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
+    public ICollection<ImportBatch> ImportBatches { get; set; } = new List<ImportBatch>();
 }

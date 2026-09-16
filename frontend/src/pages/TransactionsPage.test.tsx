@@ -396,7 +396,7 @@ describe('TransactionsPage', () => {
     expect(within(alert).getByText('Une erreur est survenue.')).toBeInTheDocument()
   })
 
-  it('offers the "mark as recurring" shortcut only on actual expenses', async () => {
+  it('offers the "mark as recurring" shortcut on both expenses and income, but not internal transfers', async () => {
     mockApiRouter({
       transactions: {
         items: [transaction, incomeTransaction, internalTransferTransaction],
@@ -412,12 +412,12 @@ describe('TransactionsPage', () => {
     expect(
       screen.getByRole('button', { name: 'Marquer Example Shop comme dépense récurrente' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('Salaire')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Marquer Salaire comme revenu récurrent' })).toBeInTheDocument()
     expect(screen.getByText('Virement épargne')).toBeInTheDocument()
-    // Only one "mark as recurring" button: the income and internal-transfer rows render nothing.
+    // The internal-transfer row renders no "mark as recurring" button at all.
     expect(
-      screen.getAllByRole('button', { name: 'Marquer Example Shop comme dépense récurrente' }),
-    ).toHaveLength(1)
+      screen.queryByRole('button', { name: /Marquer Virement épargne/ }),
+    ).not.toBeInTheDocument()
   })
 
   it('creates a recurring expense pre-filled from the transaction on confirm', async () => {
@@ -442,6 +442,36 @@ describe('TransactionsPage', () => {
             amount: 10.99,
             categoryId: null,
             frequency: 'Yearly',
+            startDate: '2026-08-31',
+            endDate: null,
+          },
+        }),
+      ),
+    )
+    expect(await screen.findByText('Ajoutée ✓')).toBeInTheDocument()
+  })
+
+  it('creates a recurring income pre-filled from an income transaction on confirm', async () => {
+    mockApiRouter({ transactions: { items: [incomeTransaction], totalCount: 1, page: 1, pageSize: 50 } })
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByText('Salaire')
+
+    await user.click(screen.getByRole('button', { name: 'Marquer Salaire comme revenu récurrent' }))
+    expect(screen.getByRole('heading', { name: 'Marquer comme revenu récurrent' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Créer' }))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/recurring-incomes',
+        expect.objectContaining({
+          method: 'POST',
+          body: {
+            label: 'Salaire',
+            amount: 1500,
+            categoryId: null,
+            frequency: 'Monthly',
             startDate: '2026-08-31',
             endDate: null,
           },

@@ -11,6 +11,8 @@ public class BudgetDbContext(DbContextOptions<BudgetDbContext> options) : DbCont
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<CategoryRule> CategoryRules => Set<CategoryRule>();
     public DbSet<RecurringExpense> RecurringExpenses => Set<RecurringExpense>();
+    public DbSet<RecurringIncome> RecurringIncomes => Set<RecurringIncome>();
+    public DbSet<ImportBatch> ImportBatches => Set<ImportBatch>();
     public DbSet<SavingsGoal> SavingsGoals => Set<SavingsGoal>();
     public DbSet<Loan> Loans => Set<Loan>();
     public DbSet<Budget> Budgets => Set<Budget>();

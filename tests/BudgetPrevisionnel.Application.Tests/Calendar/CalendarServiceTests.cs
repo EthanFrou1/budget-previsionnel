@@ -1,6 +1,7 @@
 using BudgetPrevisionnel.Application.Calendar;
 using BudgetPrevisionnel.Application.Tests.Loans;
 using BudgetPrevisionnel.Application.Tests.RecurringExpenses;
+using BudgetPrevisionnel.Application.Tests.RecurringIncomes;
 using BudgetPrevisionnel.Domain.Entities;
 using BudgetPrevisionnel.Domain.Enums;
 
@@ -8,19 +9,20 @@ namespace BudgetPrevisionnel.Application.Tests.Calendar;
 
 public class CalendarServiceTests
 {
-    private static (FakeRecurringExpenseRepository RecurringExpenses, FakeLoanRepository Loans, CalendarService Service)
-        CreateSubject()
+    private static (FakeRecurringExpenseRepository RecurringExpenses, FakeLoanRepository Loans,
+        FakeRecurringIncomeRepository RecurringIncomes, CalendarService Service) CreateSubject()
     {
         var recurringExpenses = new FakeRecurringExpenseRepository();
         var loans = new FakeLoanRepository();
-        var service = new CalendarService(recurringExpenses, loans);
-        return (recurringExpenses, loans, service);
+        var recurringIncomes = new FakeRecurringIncomeRepository();
+        var service = new CalendarService(recurringExpenses, loans, recurringIncomes);
+        return (recurringExpenses, loans, recurringIncomes, service);
     }
 
     [Fact]
     public async Task GetMonthlyCalendarAsync_RecurringExpense_ReturnsItsOccurrenceDateAndLabel()
     {
-        var (recurringExpenses, _, service) = CreateSubject();
+        var (recurringExpenses, _, _, service) = CreateSubject();
         await recurringExpenses.AddAsync(new RecurringExpense
         {
             UserId = 1, Label = "Loyer", Amount = 800m,
@@ -38,9 +40,28 @@ public class CalendarServiceTests
     }
 
     [Fact]
+    public async Task GetMonthlyCalendarAsync_RecurringIncome_ReturnsItsOccurrenceDateAndLabel()
+    {
+        var (_, _, recurringIncomes, service) = CreateSubject();
+        await recurringIncomes.AddAsync(new RecurringIncome
+        {
+            UserId = 1, Label = "Salaire", Amount = 2200m,
+            Frequency = RecurrenceFrequency.Monthly, StartDate = new DateOnly(2026, 1, 28)
+        });
+
+        var entries = await service.GetMonthlyCalendarAsync(1, new DateOnly(2026, 9, 1));
+
+        var entry = Assert.Single(entries);
+        Assert.Equal(new DateOnly(2026, 9, 28), entry.Date);
+        Assert.Equal("Salaire", entry.Label);
+        Assert.Equal(2200m, entry.Amount);
+        Assert.Equal(CalendarEntryType.RecurringIncome, entry.Type);
+    }
+
+    [Fact]
     public async Task GetMonthlyCalendarAsync_WeeklyRecurringExpense_ReturnsEveryOccurrenceThatMonth()
     {
-        var (recurringExpenses, _, service) = CreateSubject();
+        var (recurringExpenses, _, _, service) = CreateSubject();
         // February 2026 starts on a Sunday; Mondays fall on 2, 9, 16, 23.
         await recurringExpenses.AddAsync(new RecurringExpense
         {
@@ -57,7 +78,7 @@ public class CalendarServiceTests
     [Fact]
     public async Task GetMonthlyCalendarAsync_RecurringExpenseEndingThisMonth_IsFlaggedAsLastOccurrence()
     {
-        var (recurringExpenses, _, service) = CreateSubject();
+        var (recurringExpenses, _, _, service) = CreateSubject();
         await recurringExpenses.AddAsync(new RecurringExpense
         {
             UserId = 1, Label = "Essai gratuit", Amount = 9.99m,
@@ -74,7 +95,7 @@ public class CalendarServiceTests
     [Fact]
     public async Task GetMonthlyCalendarAsync_Loan_LandsOnEndDatesDayOfMonth()
     {
-        var (_, loans, service) = CreateSubject();
+        var (_, loans, _, service) = CreateSubject();
         await loans.AddAsync(new Loan
         {
             UserId = 1, Label = "Prêt auto", PrincipalAmount = 10000m, RemainingAmount = 5000m,
@@ -93,7 +114,7 @@ public class CalendarServiceTests
     [Fact]
     public async Task GetMonthlyCalendarAsync_LoanEndingThisMonth_IsFlaggedAsLastOccurrence()
     {
-        var (_, loans, service) = CreateSubject();
+        var (_, loans, _, service) = CreateSubject();
         await loans.AddAsync(new Loan
         {
             UserId = 1, Label = "Dernier mois", PrincipalAmount = 10000m, RemainingAmount = 300m,
@@ -110,7 +131,7 @@ public class CalendarServiceTests
     [Fact]
     public async Task GetMonthlyCalendarAsync_LoanEndedBeforeMonth_IsExcluded()
     {
-        var (_, loans, service) = CreateSubject();
+        var (_, loans, _, service) = CreateSubject();
         await loans.AddAsync(new Loan
         {
             UserId = 1, Label = "Pret solde", PrincipalAmount = 10000m, RemainingAmount = 0m,
@@ -125,7 +146,7 @@ public class CalendarServiceTests
     [Fact]
     public async Task GetMonthlyCalendarAsync_AnotherUsersData_NeverIncluded()
     {
-        var (recurringExpenses, loans, service) = CreateSubject();
+        var (recurringExpenses, loans, _, service) = CreateSubject();
         await recurringExpenses.AddAsync(new RecurringExpense
         {
             UserId = 2, Label = "Pas à moi", Amount = 10m,
@@ -145,7 +166,7 @@ public class CalendarServiceTests
     [Fact]
     public async Task GetMonthlyCalendarAsync_CombinesRecurringExpensesAndLoans_SortedByDate()
     {
-        var (recurringExpenses, loans, service) = CreateSubject();
+        var (recurringExpenses, loans, _, service) = CreateSubject();
         await recurringExpenses.AddAsync(new RecurringExpense
         {
             UserId = 1, Label = "Loyer", Amount = 800m,
@@ -167,7 +188,7 @@ public class CalendarServiceTests
     [Fact]
     public async Task GetAnnualCalendarAsync_ReturnsOccurrencesAcrossAllTwelveMonths()
     {
-        var (recurringExpenses, _, service) = CreateSubject();
+        var (recurringExpenses, _, _, service) = CreateSubject();
         await recurringExpenses.AddAsync(new RecurringExpense
         {
             UserId = 1, Label = "Loyer", Amount = 800m,

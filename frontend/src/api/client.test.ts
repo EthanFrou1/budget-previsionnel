@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apiFetch, ApiError } from './client'
+import { apiFetch, apiFetchBlob, ApiError } from './client'
 
 function mockFetchOnce(response: { status: number; body?: unknown }) {
   vi.stubGlobal(
@@ -8,6 +8,19 @@ function mockFetchOnce(response: { status: number; body?: unknown }) {
       ok: response.status >= 200 && response.status < 300,
       status: response.status,
       json: () => Promise.resolve(response.body),
+    }),
+  )
+}
+
+function mockFetchBlobOnce(response: { status: number; blob?: Blob; body?: unknown; contentDisposition?: string }) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue({
+      ok: response.status >= 200 && response.status < 300,
+      status: response.status,
+      headers: { get: (name: string) => (name === 'Content-Disposition' ? (response.contentDisposition ?? null) : null) },
+      json: () => Promise.resolve(response.body),
+      blob: () => Promise.resolve(response.blob),
     }),
   )
 }
@@ -70,5 +83,43 @@ describe('apiFetch', () => {
     const [, init] = vi.mocked(fetch).mock.calls[0]
     const headers = init?.headers as Record<string, string> | undefined
     expect(headers?.Authorization).toBe('Bearer abc123')
+  })
+})
+
+describe('apiFetchBlob', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('returns the blob and the filename parsed from Content-Disposition', async () => {
+    const blob = new Blob(['csv content'], { type: 'text/csv' })
+    mockFetchBlobOnce({ status: 200, blob, contentDisposition: 'attachment; filename="août-2026.csv"' })
+
+    const result = await apiFetchBlob('/api/bank-accounts/1/import/history/1/file')
+
+    expect(result.blob).toBe(blob)
+    expect(result.fileName).toBe('août-2026.csv')
+  })
+
+  it('returns a null filename when there is no Content-Disposition header', async () => {
+    const blob = new Blob(['csv content'], { type: 'text/csv' })
+    mockFetchBlobOnce({ status: 200, blob })
+
+    const result = await apiFetchBlob('/api/bank-accounts/1/import/history/1/file')
+
+    expect(result.fileName).toBeNull()
+  })
+
+  it('throws ApiError on failure', async () => {
+    mockFetchBlobOnce({
+      status: 404,
+      body: { title: 'Not found', detail: 'Import batch 1 was not found.', status: 404 },
+    })
+
+    await expect(apiFetchBlob('/api/bank-accounts/1/import/history/1/file')).rejects.toMatchObject({
+      status: 404,
+      title: 'Not found',
+      message: 'Import batch 1 was not found.',
+    })
   })
 })

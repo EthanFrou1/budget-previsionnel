@@ -3,7 +3,8 @@ namespace BudgetPrevisionnel.Application.Calendar;
 public enum CalendarEntryType
 {
     RecurringExpense,
-    Loan
+    Loan,
+    RecurringIncome
 }
 
 /// <summary>One concrete, dated occurrence of a RecurringExpense or a Loan payment -

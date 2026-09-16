@@ -3,6 +3,7 @@ using System;
 using BudgetPrevisionnel.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace BudgetPrevisionnel.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(BudgetDbContext))]
-    partial class BudgetDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260916082146_AddRecurringIncomes")]
+    partial class AddRecurringIncomes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -235,47 +238,6 @@ namespace BudgetPrevisionnel.Infrastructure.Persistence.Migrations
                     b.HasIndex("OwnerId");
 
                     b.ToTable("CategoryRules");
-                });
-
-            modelBuilder.Entity("BudgetPrevisionnel.Domain.Entities.ImportBatch", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("BankAccountId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("DuplicatesSkipped")
-                        .HasColumnType("integer");
-
-                    b.Property<byte[]>("FileContent")
-                        .HasColumnType("bytea");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(260)
-                        .HasColumnType("character varying(260)");
-
-                    b.Property<DateTime>("ImportedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("InternalTransfersDetected")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("NewTransactionsImported")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("TotalRowsParsed")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BankAccountId", "ImportedAtUtc");
-
-                    b.ToTable("ImportBatches");
                 });
 
             modelBuilder.Entity("BudgetPrevisionnel.Domain.Entities.Loan", b =>
@@ -581,17 +543,6 @@ namespace BudgetPrevisionnel.Infrastructure.Persistence.Migrations
                     b.Navigation("Owner");
                 });
 
-            modelBuilder.Entity("BudgetPrevisionnel.Domain.Entities.ImportBatch", b =>
-                {
-                    b.HasOne("BudgetPrevisionnel.Domain.Entities.BankAccount", "BankAccount")
-                        .WithMany("ImportBatches")
-                        .HasForeignKey("BankAccountId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("BankAccount");
-                });
-
             modelBuilder.Entity("BudgetPrevisionnel.Domain.Entities.Loan", b =>
                 {
                     b.HasOne("BudgetPrevisionnel.Domain.Entities.User", "User")
@@ -677,8 +628,6 @@ namespace BudgetPrevisionnel.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("BudgetPrevisionnel.Domain.Entities.BankAccount", b =>
                 {
-                    b.Navigation("ImportBatches");
-
                     b.Navigation("Transactions");
                 });
 

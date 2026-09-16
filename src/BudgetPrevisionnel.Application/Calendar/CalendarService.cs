@@ -1,17 +1,21 @@
 using BudgetPrevisionnel.Application.Forecasting;
 using BudgetPrevisionnel.Application.Loans;
 using BudgetPrevisionnel.Application.RecurringExpenses;
+using BudgetPrevisionnel.Application.RecurringIncomes;
 
 namespace BudgetPrevisionnel.Application.Calendar;
 
 /// <summary>
-/// Turns RecurringExpense + Loan into actual dated occurrences for a calendar view -
-/// the same two sources ForecastService combines into monthly totals, but at
+/// Turns RecurringExpense + Loan + RecurringIncome into actual dated occurrences for a
+/// calendar view - the same sources ForecastService combines into monthly totals, but at
 /// per-occurrence-date granularity instead of a summed figure. Deliberately doesn't
 /// consider Budget: a Budget line is a planned total for a category/month, never tied to
 /// a specific day, so it has nothing to contribute to a calendar of dated events.
 /// </summary>
-public sealed class CalendarService(IRecurringExpenseRepository recurringExpenseRepository, ILoanRepository loanRepository)
+public sealed class CalendarService(
+    IRecurringExpenseRepository recurringExpenseRepository,
+    ILoanRepository loanRepository,
+    IRecurringIncomeRepository recurringIncomeRepository)
 {
     public async Task<IReadOnlyList<CalendarEntry>> GetMonthlyCalendarAsync(
         int userId, DateOnly month, CancellationToken cancellationToken = default)
@@ -20,6 +24,7 @@ public sealed class CalendarService(IRecurringExpenseRepository recurringExpense
 
         var recurringExpenses = await recurringExpenseRepository.GetAllForUserAsync(userId, cancellationToken);
         var loans = await loanRepository.GetAllForUserAsync(userId, cancellationToken);
+        var recurringIncomes = await recurringIncomeRepository.GetAllForUserAsync(userId, cancellationToken);
 
         var entries = new List<CalendarEntry>();
 
@@ -30,6 +35,16 @@ public sealed class CalendarService(IRecurringExpenseRepository recurringExpense
                 entries.Add(new CalendarEntry(
                     occurrence.Date, expense.Label, expense.Amount,
                     CalendarEntryType.RecurringExpense, occurrence.IsLastOccurrence));
+            }
+        }
+
+        foreach (var income in recurringIncomes)
+        {
+            foreach (var occurrence in RecurringIncomeProjector.GetOccurrenceDates(income, normalizedMonth))
+            {
+                entries.Add(new CalendarEntry(
+                    occurrence.Date, income.Label, income.Amount,
+                    CalendarEntryType.RecurringIncome, occurrence.IsLastOccurrence));
             }
         }
 

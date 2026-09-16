@@ -18,7 +18,8 @@ public sealed class BankStatementImportService(
     IBankAccountRepository bankAccountRepository,
     ITransactionRepository transactionRepository,
     ICategoryRepository categoryRepository,
-    ICategoryRuleRepository categoryRuleRepository)
+    ICategoryRuleRepository categoryRuleRepository,
+    IImportBatchRepository importBatchRepository)
 {
     public async Task<IReadOnlyList<ImportRow>> PreviewAsync(
         int userId, int bankAccountId, Stream fileStream, CancellationToken cancellationToken = default)
@@ -60,7 +61,8 @@ public sealed class BankStatementImportService(
     }
 
     public async Task<ImportSummary> CommitAsync(
-        int userId, int bankAccountId, IReadOnlyList<ImportRow> rows, CancellationToken cancellationToken = default)
+        int userId, int bankAccountId, string fileName, IReadOnlyList<ImportRow> rows,
+        byte[]? fileContent = null, CancellationToken cancellationToken = default)
     {
         _ = await bankAccountRepository.GetByIdForUserAsync(userId, bankAccountId, cancellationToken)
             ?? throw new BankAccountNotFoundException(bankAccountId);
@@ -86,11 +88,58 @@ public sealed class BankStatementImportService(
 
         var transferMatchCount = await DetectAndFlagInternalTransfersAsync(userId, bankAccountId, newTransactions, cancellationToken);
 
-        return new ImportSummary(
+        var summary = new ImportSummary(
             TotalRowsParsed: rows.Count,
             NewTransactionsImported: newTransactions.Count,
             DuplicatesSkipped: rows.Count - newTransactions.Count,
             InternalTransfersDetected: transferMatchCount);
+
+        // Recorded even when NewTransactionsImported is 0 (e.g. a re-imported statement
+        // that turned out to be all duplicates) - the user still picked a file and ran an
+        // import, and the history should explain why nothing new showed up.
+        await importBatchRepository.AddAsync(new ImportBatch
+        {
+            BankAccountId = bankAccountId,
+            FileName = fileName,
+            ImportedAtUtc = DateTime.UtcNow,
+            FileContent = fileContent,
+            TotalRowsParsed = summary.TotalRowsParsed,
+            NewTransactionsImported = summary.NewTransactionsImported,
+            DuplicatesSkipped = summary.DuplicatesSkipped,
+            InternalTransfersDetected = summary.InternalTransfersDetected
+        }, cancellationToken);
+
+        return summary;
+    }
+
+    /// <summary>Newest-first history of CSV imports for this account, shown on /accounts
+    /// so a re-import doesn't happen blind to what already landed.</summary>
+    public async Task<IReadOnlyList<ImportBatch>> GetHistoryAsync(
+        int userId, int bankAccountId, CancellationToken cancellationToken = default)
+    {
+        _ = await bankAccountRepository.GetByIdForUserAsync(userId, bankAccountId, cancellationToken)
+            ?? throw new BankAccountNotFoundException(bankAccountId);
+
+        return await importBatchRepository.GetForAccountAsync(bankAccountId, cancellationToken);
+    }
+
+    /// <summary>Raw bytes of exactly what was uploaded for one past import, so the user
+    /// can re-open it - throws ImportBatchNotFoundException both when the batch doesn't
+    /// exist/belong to this account and when it predates FileContent being captured, since
+    /// either way there's nothing to hand back.</summary>
+    public async Task<(string FileName, byte[] Content)> GetFileAsync(
+        int userId, int bankAccountId, int batchId, CancellationToken cancellationToken = default)
+    {
+        _ = await bankAccountRepository.GetByIdForUserAsync(userId, bankAccountId, cancellationToken)
+            ?? throw new BankAccountNotFoundException(bankAccountId);
+
+        var batch = await importBatchRepository.GetByIdForAccountAsync(bankAccountId, batchId, cancellationToken);
+        if (batch?.FileContent is null)
+        {
+            throw new ImportBatchNotFoundException(batchId);
+        }
+
+        return (batch.FileName, batch.FileContent);
     }
 
     private async Task<int?> ResolveSystemCategoryIdAsync(
@@ -164,3 +213,6 @@ public sealed record ImportSummary(
 // before Lot 9's exception hierarchy) - not worth a distinct status code for this app.
 public sealed class NoParserAvailableException(string bankName)
     : ValidationException($"No statement parser is registered for bank '{bankName}'.");
+
+public sealed class ImportBatchNotFoundException(int batchId)
+    : NotFoundException($"Import batch {batchId} was not found.");

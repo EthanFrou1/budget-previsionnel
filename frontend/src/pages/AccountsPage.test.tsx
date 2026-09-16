@@ -3,14 +3,14 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apiFetch, ApiError } from '../api/client'
+import { apiFetch, apiFetchBlob, ApiError } from '../api/client'
 import type { BankAccount } from '../api/types'
 import { AuthContextTestProvider } from '../auth/testUtils'
 import { AccountsPage } from './AccountsPage'
 
 vi.mock('../api/client', async () => {
   const actual = await vi.importActual<typeof import('../api/client')>('../api/client')
-  return { ...actual, apiFetch: vi.fn() }
+  return { ...actual, apiFetch: vi.fn(), apiFetchBlob: vi.fn() }
 })
 
 function renderPage() {
@@ -31,6 +31,7 @@ const account: BankAccount = { id: 1, bankName: 'BoursoBank', label: 'Compte cou
 describe('AccountsPage', () => {
   beforeEach(() => {
     vi.mocked(apiFetch).mockReset()
+    vi.mocked(apiFetchBlob).mockReset()
   })
 
   afterEach(() => {
@@ -39,7 +40,9 @@ describe('AccountsPage', () => {
   })
 
   it('renders the accounts returned by the API', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce([account])
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce([account])
+      .mockResolvedValueOnce([]) // import history
 
     renderPage()
 
@@ -77,6 +80,7 @@ describe('AccountsPage', () => {
       .mockResolvedValueOnce([]) // initial list
       .mockResolvedValueOnce(account) // POST create
       .mockResolvedValueOnce([account]) // refetch after invalidation
+      .mockResolvedValueOnce([]) // import history, once the card mounts
 
     const user = userEvent.setup()
     renderPage()
@@ -103,6 +107,7 @@ describe('AccountsPage', () => {
   it('edits an account with each field properly labeled', async () => {
     vi.mocked(apiFetch)
       .mockResolvedValueOnce([account]) // initial list
+      .mockResolvedValueOnce([]) // import history, once the card mounts
       .mockResolvedValueOnce({ ...account, label: 'Compte perso' }) // PUT
       .mockResolvedValueOnce([{ ...account, label: 'Compte perso' }]) // refetch after invalidation
 
@@ -134,6 +139,7 @@ describe('AccountsPage', () => {
   it('deletes an account after confirmation', async () => {
     vi.mocked(apiFetch)
       .mockResolvedValueOnce([account]) // initial list
+      .mockResolvedValueOnce([]) // import history, once the card mounts
       .mockResolvedValueOnce(undefined) // DELETE
       .mockResolvedValueOnce([]) // refetch after invalidation
 
@@ -155,7 +161,9 @@ describe('AccountsPage', () => {
   })
 
   it('does not delete when the confirmation is dismissed', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce([account])
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce([account])
+      .mockResolvedValueOnce([]) // import history, once the card mounts
 
     const user = userEvent.setup()
     renderPage()
@@ -166,7 +174,7 @@ describe('AccountsPage', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Annuler' }))
 
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
-    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(apiFetch).not.toHaveBeenCalledWith('/api/bank-accounts/1', expect.objectContaining({ method: 'DELETE' }))
   })
 
   async function uploadAndPreview(card: HTMLElement, user: ReturnType<typeof userEvent.setup>) {
@@ -179,6 +187,7 @@ describe('AccountsPage', () => {
   it('previews a CSV file before importing anything', async () => {
     vi.mocked(apiFetch)
       .mockResolvedValueOnce([account]) // initial list
+      .mockResolvedValueOnce([]) // import history, once the card mounts
       .mockResolvedValueOnce([
         {
           date: '2026-01-01',
@@ -199,15 +208,17 @@ describe('AccountsPage', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(screen.getByText('Example')).toBeInTheDocument()
 
-    const [path, options] = vi.mocked(apiFetch).mock.calls[1]
-    expect(path).toBe('/api/bank-accounts/1/import/preview')
-    expect((options as { body: FormData }).body).toBeInstanceOf(FormData)
+    const previewCall = vi
+      .mocked(apiFetch)
+      .mock.calls.find(([path]) => path === '/api/bank-accounts/1/import/preview')!
+    expect((previewCall[1] as { body: FormData }).body).toBeInstanceOf(FormData)
   })
 
   it('ignores a second click on Aperçu while the first preview is still in flight', async () => {
     vi.mocked(apiFetch)
       .mockResolvedValueOnce([account]) // initial list
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]) // import history, once the card mounts
+      .mockResolvedValueOnce([]) // preview
 
     const user = userEvent.setup()
     renderPage()
@@ -234,6 +245,7 @@ describe('AccountsPage', () => {
   it('commits only the rows left checked, with any edited category', async () => {
     vi.mocked(apiFetch)
       .mockResolvedValueOnce([account]) // initial list
+      .mockResolvedValueOnce([]) // import history, once the card mounts
       .mockResolvedValueOnce([
         {
           date: '2026-01-01',
@@ -269,6 +281,7 @@ describe('AccountsPage', () => {
         duplicatesSkipped: 0,
         internalTransfersDetected: 0,
       })
+      .mockResolvedValueOnce([]) // import history, re-fetched after the commit invalidates it
 
     const user = userEvent.setup()
     renderPage()
@@ -287,6 +300,7 @@ describe('AccountsPage', () => {
         expect.objectContaining({
           method: 'POST',
           body: {
+            fileName: 'releve.csv',
             rows: [
               {
                 date: '2026-01-01',
@@ -296,6 +310,7 @@ describe('AccountsPage', () => {
                 categoryId: 10,
               },
             ],
+            fileContentBase64: Buffer.from('Date;Libellé\r\n2026-01-01;Test', 'utf-8').toString('base64'),
           },
         }),
       ),
@@ -307,6 +322,7 @@ describe('AccountsPage', () => {
   it('cancels the preview without committing anything', async () => {
     vi.mocked(apiFetch)
       .mockResolvedValueOnce([account]) // initial list
+      .mockResolvedValueOnce([]) // import history, once the card mounts
       .mockResolvedValueOnce([
         {
           date: '2026-01-01',
@@ -329,6 +345,82 @@ describe('AccountsPage', () => {
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(apiFetch).not.toHaveBeenCalledWith('/api/bank-accounts/1/import/commit', expect.anything())
+  })
+
+  it('shows an empty state for the import history when there are no past imports', async () => {
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce([account])
+      .mockResolvedValueOnce([]) // import history
+
+    renderPage()
+
+    const card = (await screen.findByText('Compte courant')).closest('li')!
+    expect(await within(card).findByText("Aucun import pour l'instant.")).toBeInTheDocument()
+  })
+
+  it('lists past imports with their filename, date and counts, with no download link for a batch with no stored file', async () => {
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce([account])
+      .mockResolvedValueOnce([
+        {
+          id: 1,
+          fileName: 'aout-2026.csv',
+          importedAtUtc: '2026-08-31T10:15:00Z',
+          totalRowsParsed: 12,
+          newTransactionsImported: 10,
+          duplicatesSkipped: 2,
+          internalTransfersDetected: 1,
+          hasStoredFile: false,
+        },
+      ])
+
+    renderPage()
+
+    const card = (await screen.findByText('Compte courant')).closest('li')!
+    expect(await within(card).findByText(/aout-2026\.csv/)).toBeInTheDocument()
+    expect(within(card).getByText(/10 importée\(s\)/)).toBeInTheDocument()
+    expect(within(card).getByText(/2 doublon\(s\) ignoré\(s\)/)).toBeInTheDocument()
+    expect(within(card).getByText(/1 virement\(s\) interne\(s\) détecté\(s\)/)).toBeInTheDocument()
+    expect(within(card).queryByRole('button', { name: 'Télécharger' })).not.toBeInTheDocument()
+  })
+
+  it('offers a download link for a past import with a stored file, and re-downloads it on click', async () => {
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce([account])
+      .mockResolvedValueOnce([
+        {
+          id: 1,
+          fileName: 'aout-2026.csv',
+          importedAtUtc: '2026-08-31T10:15:00Z',
+          totalRowsParsed: 12,
+          newTransactionsImported: 10,
+          duplicatesSkipped: 2,
+          internalTransfersDetected: 1,
+          hasStoredFile: true,
+        },
+      ])
+    const blob = new Blob(['csv content'], { type: 'text/csv' })
+    vi.mocked(apiFetchBlob).mockResolvedValueOnce({ blob, fileName: 'aout-2026.csv' })
+    // jsdom doesn't implement the Object URL API the download uses to hand the blob to
+    // the browser - stubbed just enough to observe it was called correctly.
+    const createObjectURL = vi.fn().mockReturnValue('blob:mock-url')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    const card = (await screen.findByText('Compte courant')).closest('li')!
+    await user.click(await within(card).findByRole('button', { name: 'Télécharger' }))
+
+    await waitFor(() =>
+      expect(apiFetchBlob).toHaveBeenCalledWith(
+        '/api/bank-accounts/1/import/history/1/file',
+        expect.objectContaining({}),
+      ),
+    )
+    expect(createObjectURL).toHaveBeenCalledWith(blob)
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url')
   })
 
   it('shows an error message when the API call fails', async () => {

@@ -67,7 +67,28 @@ public class BankAccountsController(
         int id, ImportCommitRequest request, CancellationToken cancellationToken)
     {
         var rows = request.Rows.Select(r => r.ToImportRow()).ToList();
-        var summary = await importService.CommitAsync(currentUser.UserId, id, rows, cancellationToken);
+        var fileContent = request.FileContentBase64 is null ? null : Convert.FromBase64String(request.FileContentBase64);
+        var summary = await importService.CommitAsync(currentUser.UserId, id, request.FileName, rows, fileContent, cancellationToken);
         return Ok(ImportSummaryResponse.FromResult(summary));
+    }
+
+    /// <summary>Newest-first history of CSV imports for this account - so re-importing a
+    /// statement isn't done blind to what's already been brought in before.</summary>
+    [HttpGet("{id:int}/import/history")]
+    public async Task<ActionResult<IEnumerable<ImportBatchResponse>>> ImportHistory(
+        int id, CancellationToken cancellationToken)
+    {
+        var batches = await importService.GetHistoryAsync(currentUser.UserId, id, cancellationToken);
+        return Ok(batches.Select(ImportBatchResponse.FromEntity));
+    }
+
+    /// <summary>Re-downloads exactly the CSV that was uploaded for one past import - 404
+    /// (via ImportBatchNotFoundException) if that batch predates file capture or doesn't
+    /// belong to this account.</summary>
+    [HttpGet("{id:int}/import/history/{batchId:int}/file")]
+    public async Task<IActionResult> ImportFile(int id, int batchId, CancellationToken cancellationToken)
+    {
+        var (fileName, content) = await importService.GetFileAsync(currentUser.UserId, id, batchId, cancellationToken);
+        return File(content, "text/csv", fileName);
     }
 }
