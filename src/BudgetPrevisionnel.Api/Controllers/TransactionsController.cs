@@ -28,11 +28,13 @@ public class TransactionsController(TransactionService transactionService, ICurr
         [FromQuery] bool excludeInternalTransfers,
         [FromQuery] int page,
         [FromQuery] int pageSize,
+        [FromQuery] string? sortBy,
+        [FromQuery] string? sortDirection,
         CancellationToken cancellationToken)
     {
         var result = await transactionService.SearchAsync(
             currentUser.UserId, bankAccountId, categoryId, fromDate, toDate, search,
-            excludeInternalTransfers, page, pageSize, cancellationToken);
+            excludeInternalTransfers, page, pageSize, sortBy, sortDirection, cancellationToken);
         return Ok(TransactionPageResponse.FromResult(result));
     }
 
@@ -42,6 +44,15 @@ public class TransactionsController(TransactionService transactionService, ICurr
     {
         var transaction = await transactionService.UpdateCategoryAsync(
             currentUser.UserId, id, request.CategoryId, cancellationToken);
+        return Ok(TransactionResponse.FromEntity(transaction));
+    }
+
+    [HttpPut("{id:int}/notes")]
+    public async Task<ActionResult<TransactionResponse>> UpdateNotes(
+        int id, UpdateTransactionNotesRequest request, CancellationToken cancellationToken)
+    {
+        var transaction = await transactionService.UpdateNotesAsync(
+            currentUser.UserId, id, request.Notes, cancellationToken);
         return Ok(TransactionResponse.FromEntity(transaction));
     }
 }

@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/client'
 import type { BudgetLine, Category } from '../api/types'
+import { useConfirm } from '../components/confirmContext'
 import { useApiClient } from '../auth/useApiClient'
 import { formatCurrency } from '../utils/format'
 
@@ -19,6 +20,8 @@ function errorMessage(err: unknown): string {
 export function BudgetSection({ month, categories }: { month: string; categories: Category[] }) {
   const apiClient = useApiClient()
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
+  const [isCreating, setIsCreating] = useState(false)
 
   const budgetsQuery = useQuery({
     queryKey: ['budgets', month],
@@ -30,7 +33,12 @@ export function BudgetSection({ month, categories }: { month: string; categories
   }
 
   async function handleDelete(line: BudgetLine) {
-    if (!confirm(`Supprimer le budget "${line.categoryName}" pour ce mois ?`)) {
+    if (
+      !(await confirm(`Supprimer le budget "${line.categoryName}" pour ce mois ?`, {
+        confirmLabel: 'Supprimer',
+        danger: true,
+      }))
+    ) {
       return
     }
     await apiClient(`/api/budgets/${line.id}`, { method: 'DELETE' })
@@ -39,35 +47,57 @@ export function BudgetSection({ month, categories }: { month: string; categories
 
   const budgetedCategoryIds = new Set(budgetsQuery.data?.map((line) => line.categoryId) ?? [])
   const availableCategories = categories.filter((c) => !budgetedCategoryIds.has(c.id))
-  const sortedLines = [...(budgetsQuery.data ?? [])].sort((a, b) => a.categoryName.localeCompare(b.categoryName))
+  const sortedLines = [...(budgetsQuery.data ?? [])].sort((a, b) =>
+    a.categoryName.localeCompare(b.categoryName),
+  )
 
   return (
-    <section className="space-y-3 rounded-lg bg-white p-4 shadow dark:bg-gray-800">
-      <h2 className="font-medium text-gray-900 dark:text-white">Budget du mois</h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400">
-        Un montant planifié pour une catégorie prime toujours sur une dépense récurrente ce mois-là.
-      </p>
+    <section className="space-y-3 rounded-lg bg-surface p-4 shadow">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-display font-medium text-heading">Budget du mois</h2>
+          <p className="text-sm text-muted">
+            Un montant planifié pour une catégorie prime toujours sur une dépense récurrente ce mois-là.
+          </p>
+        </div>
+        {!isCreating && availableCategories.length > 0 && (
+          <button
+            onClick={() => setIsCreating(true)}
+            className="shrink-0 rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
+          >
+            + Ajouter une ligne
+          </button>
+        )}
+      </div>
 
-      {budgetsQuery.isPending && <p className="text-gray-600 dark:text-gray-300">Chargement…</p>}
+      {budgetsQuery.isPending && <p className="text-body">Chargement…</p>}
 
       {budgetsQuery.isError && (
-        <p role="alert" className="rounded bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+        <p role="alert" className="rounded bg-negative/10 px-3 py-2 text-sm text-negative">
           {errorMessage(budgetsQuery.error)}
         </p>
       )}
 
-      {budgetsQuery.data && (
-        <CreateBudgetLineForm month={month} categories={availableCategories} onCreated={invalidate} />
+      {budgetsQuery.data && isCreating && (
+        <CreateBudgetLineForm
+          month={month}
+          categories={availableCategories}
+          onCreated={() => {
+            invalidate()
+            setIsCreating(false)
+          }}
+          onCancel={() => setIsCreating(false)}
+        />
       )}
 
       {budgetsQuery.data && sortedLines.length === 0 && (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Aucune ligne de budget pour ce mois.</p>
+        <p className="text-sm text-muted">Aucune ligne de budget pour ce mois.</p>
       )}
 
       {sortedLines.length > 0 && (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 text-xs uppercase text-gray-500 dark:border-gray-700 dark:text-gray-400">
+            <thead className="border-b border-border text-xs uppercase text-muted">
               <tr>
                 <th className="py-2">Catégorie</th>
                 <th className="py-2 text-right">Planifié</th>
@@ -75,9 +105,14 @@ export function BudgetSection({ month, categories }: { month: string; categories
                 <th className="py-2" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            <tbody className="divide-y divide-border">
               {sortedLines.map((line) => (
-                <BudgetLineRow key={line.id} line={line} onSaved={invalidate} onDelete={() => handleDelete(line)} />
+                <BudgetLineRow
+                  key={line.id}
+                  line={line}
+                  onSaved={invalidate}
+                  onDelete={() => handleDelete(line)}
+                />
               ))}
             </tbody>
           </table>
@@ -91,10 +126,12 @@ function CreateBudgetLineForm({
   month,
   categories,
   onCreated,
+  onCancel,
 }: {
   month: string
   categories: Category[]
   onCreated: () => void
+  onCancel: () => void
 }) {
   const apiClient = useApiClient()
   const [categoryId, setCategoryId] = useState(categories[0]?.id.toString() ?? '')
@@ -102,7 +139,9 @@ function CreateBudgetLineForm({
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const currentCategoryId = categories.some((c) => c.id.toString() === categoryId) ? categoryId : (categories[0]?.id.toString() ?? '')
+  const currentCategoryId = categories.some((c) => c.id.toString() === categoryId)
+    ? categoryId
+    : (categories[0]?.id.toString() ?? '')
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -127,50 +166,64 @@ function CreateBudgetLineForm({
   }
 
   if (categories.length === 0) {
-    return (
-      <p className="text-sm text-gray-500 dark:text-gray-400">
-        Toutes les catégories ont déjà un budget pour ce mois.
-      </p>
-    )
+    return <p className="text-sm text-muted">Toutes les catégories ont déjà un budget pour ce mois.</p>
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-2 border-b border-gray-100 pb-3 dark:border-gray-700">
+    <form onSubmit={handleSubmit} className="space-y-2 border-b border-border pb-3">
       {error && (
-        <p role="alert" className="rounded bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+        <p role="alert" className="rounded bg-negative/10 px-3 py-2 text-sm text-negative">
           {error}
         </p>
       )}
-      <div className="grid gap-2 sm:grid-cols-3">
-        <select
-          aria-label="Catégorie du budget"
-          value={currentCategoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
-          className="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-        >
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </select>
-        <input
-          aria-label="Montant planifié"
-          type="number"
-          step="0.01"
-          min="0.01"
-          required
-          value={plannedAmount}
-          onChange={(e) => setPlannedAmount(e.target.value)}
-          placeholder="Montant planifié"
-          className="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-        />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div>
+          <label htmlFor="budget-category" className="block text-xs font-medium text-body">
+            Catégorie
+          </label>
+          <select
+            id="budget-category"
+            value={currentCategoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+            className="mt-1 w-full rounded border border-border px-3 py-2 text-sm bg-field text-heading"
+          >
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="budget-planned-amount" className="block text-xs font-medium text-body">
+            Montant planifié
+          </label>
+          <input
+            id="budget-planned-amount"
+            type="number"
+            step="0.01"
+            min="0.01"
+            required
+            value={plannedAmount}
+            onChange={(e) => setPlannedAmount(e.target.value)}
+            className="mt-1 w-full rounded border border-border px-3 py-2 text-sm bg-field text-heading"
+          />
+        </div>
+      </div>
+      <div className="flex gap-2">
         <button
           type="submit"
           disabled={isSubmitting}
-          className="rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+          className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
         >
           {isSubmitting ? 'Ajout…' : 'Ajouter la ligne'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded border border-border px-3 py-1.5 text-sm text-body hover:bg-overlay"
+        >
+          Annuler
         </button>
       </div>
     </form>
@@ -197,7 +250,10 @@ function BudgetLineRow({
     setError(null)
     setIsSaving(true)
     try {
-      await apiClient(`/api/budgets/${line.id}`, { method: 'PUT', body: { plannedAmount: Number(plannedAmount) } })
+      await apiClient(`/api/budgets/${line.id}`, {
+        method: 'PUT',
+        body: { plannedAmount: Number(plannedAmount) },
+      })
       setIsEditing(false)
       onSaved()
     } catch (err) {
@@ -211,11 +267,11 @@ function BudgetLineRow({
 
   return (
     <tr>
-      <td className="py-2 text-gray-900 dark:text-white">{line.categoryName}</td>
+      <td className="py-2 text-heading">{line.categoryName}</td>
       <td className="py-2 text-right">
         {isEditing ? (
           <form onSubmit={handleSave} className="flex items-center justify-end gap-2">
-            {error && <span className="text-xs text-red-700 dark:text-red-400">{error}</span>}
+            {error && <span className="text-xs text-negative">{error}</span>}
             <input
               aria-label={`Montant planifié pour ${line.categoryName}`}
               type="number"
@@ -224,21 +280,21 @@ function BudgetLineRow({
               autoFocus
               value={plannedAmount}
               onChange={(e) => setPlannedAmount(e.target.value)}
-              className="w-24 rounded border border-gray-300 px-2 py-1 text-right text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              className="w-24 rounded border border-border px-2 py-1 text-right text-sm bg-field text-heading"
             />
             <button
               type="submit"
               disabled={isSaving}
-              className="rounded bg-sky-600 px-2 py-1 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+              className="rounded bg-accent px-2 py-1 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
             >
               OK
             </button>
           </form>
         ) : (
-          <span className="text-gray-600 dark:text-gray-300">{formatCurrency(line.plannedAmount)}</span>
+          <span className="text-body">{formatCurrency(line.plannedAmount)}</span>
         )}
       </td>
-      <td className={`py-2 text-right ${isOverBudget ? 'text-red-700 dark:text-red-400' : 'text-gray-600 dark:text-gray-300'}`}>
+      <td className={`py-2 text-right ${isOverBudget ? 'text-negative' : 'text-body'}`}>
         {formatCurrency(line.actualAmount)}
       </td>
       <td className="py-2 text-right">
@@ -246,14 +302,14 @@ function BudgetLineRow({
           {!isEditing && (
             <button
               onClick={() => setIsEditing(true)}
-              className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700"
+              className="rounded border border-border px-2 py-1 text-xs hover:bg-overlay"
             >
               Modifier
             </button>
           )}
           <button
             onClick={onDelete}
-            className="rounded border border-red-300 px-2 py-1 text-xs text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+            className="rounded border border-negative/40 px-2 py-1 text-xs text-negative hover:bg-negative/10"
           >
             Supprimer
           </button>

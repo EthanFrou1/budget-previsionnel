@@ -1,10 +1,88 @@
 @import 'tailwindcss';
 
+/* Direction artistique "Bureau feutré" (fond/accent) + police de "Financier
+   confiant" (Space Grotesk/IBM Plex Sans) - choisies après comparaison sur un
+   canvas de maquettes, voir docs/roadmap.md. Sombre par défaut (identité
+   assumée de l'app), avec une variante claire dérivée des mêmes teintes
+   (hue 60/70/75/155/25/250 conservés) plutôt qu'une palette indépendante à
+   maintenir en parallèle. La bascule (préférence système ou choix explicite
+   via <html data-theme>) est gérée par src/theme/useTheme.ts. */
+@theme {
+  --color-bg: oklch(0.16 0.01 60);
+  --color-surface: oklch(0.205 0.012 60);
+  --color-field: oklch(0.24 0.014 60);
+  --color-border: oklch(0.32 0.014 60);
+
+  --color-heading: oklch(0.96 0.01 70);
+  --color-body: oklch(0.76 0.012 60);
+  --color-muted: oklch(0.56 0.012 60);
+
+  --color-accent: #c6a15b;
+  --color-accent-hover: #b8935a;
+  --color-positive: oklch(0.7 0.11 155);
+  --color-negative: oklch(0.66 0.15 25);
+  --color-info: oklch(0.72 0.09 250);
+
+  /* Subtle hover wash for bordered buttons/nav items - white-on-dark by default,
+     redefined to a black-based wash under the light palette below so it stays
+     visible against a light surface instead of disappearing into it. */
+  --color-overlay: oklch(1 0 0 / 5%);
+
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+}
+
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
+}
+
+/* Light palette - applied by OS preference (absent an explicit override) ... */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --color-bg: oklch(0.965 0.006 70);
+    --color-surface: oklch(0.995 0.004 70);
+    --color-field: oklch(0.93 0.008 70);
+    --color-border: oklch(0.84 0.012 70);
+
+    --color-heading: oklch(0.24 0.018 60);
+    --color-body: oklch(0.4 0.016 60);
+    --color-muted: oklch(0.56 0.014 60);
+
+    --color-accent: oklch(0.5 0.1 75);
+    --color-accent-hover: oklch(0.44 0.1 75);
+    --color-positive: oklch(0.45 0.13 155);
+    --color-negative: oklch(0.5 0.18 25);
+    --color-info: oklch(0.5 0.13 250);
+
+    --color-overlay: oklch(0 0 0 / 5%);
+  }
+}
+
+/* ... or by an explicit user choice, which always wins over OS preference. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-bg: oklch(0.965 0.006 70);
+  --color-surface: oklch(0.995 0.004 70);
+  --color-field: oklch(0.93 0.008 70);
+  --color-border: oklch(0.84 0.012 70);
+
+  --color-heading: oklch(0.24 0.018 60);
+  --color-body: oklch(0.4 0.016 60);
+  --color-muted: oklch(0.56 0.014 60);
+
+  --color-accent: oklch(0.5 0.1 75);
+  --color-accent-hover: oklch(0.44 0.1 75);
+  --color-positive: oklch(0.45 0.13 155);
+  --color-negative: oklch(0.5 0.18 25);
+  --color-info: oklch(0.5 0.13 250);
+
+  --color-overlay: oklch(0 0 0 / 5%);
 }
 
 body {
   margin: 0;
   min-height: 100svh;
+  background-color: var(--color-bg);
+  color: var(--color-body);
 }

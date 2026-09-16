@@ -83,7 +83,25 @@ internal sealed class FakeTransactionRepository(FakeBankAccountRepository accoun
                 (t.CleanedLabel?.Contains(query.Search, StringComparison.OrdinalIgnoreCase) ?? false));
         }
 
-        var all = filtered.OrderByDescending(t => t.Date).ThenByDescending(t => t.Id).ToList();
+        var sorted = query.SortBy switch
+        {
+            TransactionSortColumn.BankAccount => query.SortDescending
+                ? filtered.OrderByDescending(t => accounts.GetLabel(t.BankAccountId))
+                : filtered.OrderBy(t => accounts.GetLabel(t.BankAccountId)),
+            TransactionSortColumn.Label => query.SortDescending
+                ? filtered.OrderByDescending(t => t.CleanedLabel ?? t.RawLabel)
+                : filtered.OrderBy(t => t.CleanedLabel ?? t.RawLabel),
+            TransactionSortColumn.Amount => query.SortDescending
+                ? filtered.OrderByDescending(t => t.Amount)
+                : filtered.OrderBy(t => t.Amount),
+            TransactionSortColumn.Category => query.SortDescending
+                ? filtered.OrderByDescending(t => t.Category?.Name)
+                : filtered.OrderBy(t => t.Category?.Name),
+            _ => query.SortDescending
+                ? filtered.OrderByDescending(t => t.Date)
+                : filtered.OrderBy(t => t.Date),
+        };
+        var all = (query.SortDescending ? sorted.ThenByDescending(t => t.Id) : sorted.ThenBy(t => t.Id)).ToList();
         var page = all.Skip((query.Page - 1) * query.PageSize).Take(query.PageSize).ToList();
 
         return Task.FromResult(new TransactionPage(page, all.Count, query.Page, query.PageSize));

@@ -56,7 +56,23 @@ describe('AccountsPage', () => {
     expect(await screen.findByText("Aucun compte pour l'instant.")).toBeInTheDocument()
   })
 
-  it('creates an account and refreshes the list', async () => {
+  it('hides the create form behind a toggle button until the user asks for it', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce([])
+
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText("Aucun compte pour l'instant.")
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '+ Ajouter un compte' }))
+    expect(screen.getByLabelText('Libellé')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Annuler' }))
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
+  })
+
+  it('creates an account, refreshes the list and collapses the form again', async () => {
     vi.mocked(apiFetch)
       .mockResolvedValueOnce([]) // initial list
       .mockResolvedValueOnce(account) // POST create
@@ -66,6 +82,7 @@ describe('AccountsPage', () => {
     renderPage()
 
     await screen.findByText("Aucun compte pour l'instant.")
+    await user.click(screen.getByRole('button', { name: '+ Ajouter un compte' }))
 
     await user.type(screen.getByLabelText('Libellé'), 'Compte courant')
     await user.click(screen.getByRole('button', { name: 'Ajouter' }))
@@ -80,6 +97,38 @@ describe('AccountsPage', () => {
       ),
     )
     expect(await screen.findByText('Compte courant')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
+  })
+
+  it('edits an account with each field properly labeled', async () => {
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce([account]) // initial list
+      .mockResolvedValueOnce({ ...account, label: 'Compte perso' }) // PUT
+      .mockResolvedValueOnce([{ ...account, label: 'Compte perso' }]) // refetch after invalidation
+
+    const user = userEvent.setup()
+    renderPage()
+
+    const card = (await screen.findByText('Compte courant')).closest('li')!
+    await user.click(within(card).getByRole('button', { name: 'Modifier' }))
+
+    expect(within(card).getByLabelText('Banque')).toBeInTheDocument()
+    expect(within(card).getByLabelText('IBAN (optionnel)')).toBeInTheDocument()
+    const labelInput = within(card).getByLabelText('Libellé')
+    await user.clear(labelInput)
+    await user.type(labelInput, 'Compte perso')
+    await user.click(within(card).getByRole('button', { name: 'Enregistrer' }))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/bank-accounts/1',
+        expect.objectContaining({
+          method: 'PUT',
+          body: { bankName: 'BoursoBank', label: 'Compte perso', iban: 'FR76...' },
+        }),
+      ),
+    )
+    expect(await screen.findByText('Compte perso')).toBeInTheDocument()
   })
 
   it('deletes an account after confirmation', async () => {
@@ -87,42 +136,78 @@ describe('AccountsPage', () => {
       .mockResolvedValueOnce([account]) // initial list
       .mockResolvedValueOnce(undefined) // DELETE
       .mockResolvedValueOnce([]) // refetch after invalidation
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
 
     const user = userEvent.setup()
     renderPage()
 
     await screen.findByText('Compte courant')
     await user.click(screen.getByRole('button', { name: 'Supprimer' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Supprimer' }))
 
     await waitFor(() =>
-      expect(apiFetch).toHaveBeenCalledWith('/api/bank-accounts/1', expect.objectContaining({ method: 'DELETE' })),
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/bank-accounts/1',
+        expect.objectContaining({ method: 'DELETE' }),
+      ),
     )
     expect(await screen.findByText("Aucun compte pour l'instant.")).toBeInTheDocument()
   })
 
   it('does not delete when the confirmation is dismissed', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce([account])
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(false))
 
     const user = userEvent.setup()
     renderPage()
 
     await screen.findByText('Compte courant')
     await user.click(screen.getByRole('button', { name: 'Supprimer' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Annuler' }))
 
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('imports a CSV file and shows the resulting summary', async () => {
+  async function uploadAndPreview(card: HTMLElement, user: ReturnType<typeof userEvent.setup>) {
+    const fileInput = within(card).getByLabelText('Importer un relevé CSV') as HTMLInputElement
+    const file = new File(['Date;Libellé\r\n2026-01-01;Test'], 'releve.csv', { type: 'text/csv' })
+    await user.upload(fileInput, file)
+    await user.click(within(card).getByRole('button', { name: 'Aperçu' }))
+  }
+
+  it('previews a CSV file before importing anything', async () => {
     vi.mocked(apiFetch)
       .mockResolvedValueOnce([account]) // initial list
-      .mockResolvedValueOnce({
-        totalRowsParsed: 3,
-        newTransactionsImported: 2,
-        duplicatesSkipped: 1,
-        internalTransfersDetected: 0,
-      })
+      .mockResolvedValueOnce([
+        {
+          date: '2026-01-01',
+          rawLabel: 'CARTE EXAMPLE',
+          cleanedLabel: 'Example',
+          amount: -12.5,
+          categoryId: null,
+          categoryName: null,
+        },
+      ])
+
+    const user = userEvent.setup()
+    renderPage()
+
+    const card = (await screen.findByText('Compte courant')).closest('li')!
+    await uploadAndPreview(card, user)
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText('Example')).toBeInTheDocument()
+
+    const [path, options] = vi.mocked(apiFetch).mock.calls[1]
+    expect(path).toBe('/api/bank-accounts/1/import/preview')
+    expect((options as { body: FormData }).body).toBeInstanceOf(FormData)
+  })
+
+  it('ignores a second click on Aperçu while the first preview is still in flight', async () => {
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce([account]) // initial list
+      .mockResolvedValueOnce([])
 
     const user = userEvent.setup()
     renderPage()
@@ -132,13 +217,118 @@ describe('AccountsPage', () => {
     const file = new File(['Date;Libellé\r\n2026-01-01;Test'], 'releve.csv', { type: 'text/csv' })
     await user.upload(fileInput, file)
 
-    await user.click(within(card).getByRole('button', { name: 'Importer' }))
+    // A React state-driven `disabled` alone can't stop two clicks that land before the
+    // re-render commits - both clicks fire before either resolves, exercising the
+    // synchronous ref guard rather than relying on timing.
+    const previewButton = within(card).getByRole('button', { name: 'Aperçu' })
+    await Promise.all([user.click(previewButton), user.click(previewButton)])
 
-    expect(await within(card).findByText(/2 importée\(s\)/)).toBeInTheDocument()
+    await screen.findByRole('dialog')
 
-    const [path, options] = vi.mocked(apiFetch).mock.calls[1]
-    expect(path).toBe('/api/bank-accounts/1/import')
-    expect((options as { body: FormData }).body).toBeInstanceOf(FormData)
+    const previewCalls = vi
+      .mocked(apiFetch)
+      .mock.calls.filter(([path]) => path === '/api/bank-accounts/1/import/preview')
+    expect(previewCalls).toHaveLength(1)
+  })
+
+  it('commits only the rows left checked, with any edited category', async () => {
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce([account]) // initial list
+      .mockResolvedValueOnce([
+        {
+          date: '2026-01-01',
+          rawLabel: 'CARTE NETFLIX',
+          cleanedLabel: 'Netflix',
+          amount: -12.5,
+          categoryId: 10,
+          categoryName: 'Loisirs',
+        },
+        {
+          date: '2026-01-02',
+          rawLabel: 'CARTE STEAM',
+          cleanedLabel: 'Steam',
+          amount: -7.99,
+          categoryId: null,
+          categoryName: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 10,
+          name: 'Loisirs',
+          icon: null,
+          color: null,
+          parentCategoryId: null,
+          isSystemDefault: true,
+          isOwnedByCurrentUser: false,
+        },
+      ])
+      .mockResolvedValueOnce({
+        totalRowsParsed: 1,
+        newTransactionsImported: 1,
+        duplicatesSkipped: 0,
+        internalTransfersDetected: 0,
+      })
+
+    const user = userEvent.setup()
+    renderPage()
+
+    const card = (await screen.findByText('Compte courant')).closest('li')!
+    await uploadAndPreview(card, user)
+    await screen.findByRole('dialog')
+
+    // Uncheck Steam - only Netflix should be committed.
+    await user.click(screen.getByLabelText('Inclure Steam'))
+    await user.click(screen.getByRole('button', { name: "Confirmer l'import (1)" }))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/bank-accounts/1/import/commit',
+        expect.objectContaining({
+          method: 'POST',
+          body: {
+            rows: [
+              {
+                date: '2026-01-01',
+                rawLabel: 'CARTE NETFLIX',
+                cleanedLabel: 'Netflix',
+                amount: -12.5,
+                categoryId: 10,
+              },
+            ],
+          },
+        }),
+      ),
+    )
+    expect(await within(card).findByText(/1 transaction\(s\) importée\(s\)/)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('cancels the preview without committing anything', async () => {
+    vi.mocked(apiFetch)
+      .mockResolvedValueOnce([account]) // initial list
+      .mockResolvedValueOnce([
+        {
+          date: '2026-01-01',
+          rawLabel: 'CARTE EXAMPLE',
+          cleanedLabel: 'Example',
+          amount: -12.5,
+          categoryId: null,
+          categoryName: null,
+        },
+      ])
+
+    const user = userEvent.setup()
+    renderPage()
+
+    const card = (await screen.findByText('Compte courant')).closest('li')!
+    await uploadAndPreview(card, user)
+    await screen.findByRole('dialog')
+
+    await user.click(screen.getByRole('button', { name: 'Annuler' }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(apiFetch).not.toHaveBeenCalledWith('/api/bank-accounts/1/import/commit', expect.anything())
   })
 
   it('shows an error message when the API call fails', async () => {

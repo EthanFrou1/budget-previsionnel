@@ -7,9 +7,10 @@ using BudgetPrevisionnel.Api.Contracts.Transactions;
 namespace BudgetPrevisionnel.Api.Tests;
 
 /// <summary>
-/// A cross-feature smoke test (account -> import -> transactions) through the real
-/// pipeline with the Lot 9 middleware/validation in place, complementing the deep
-/// per-feature unit tests already covering BankImport/Transactions in isolation.
+/// A cross-feature smoke test (account -> import preview -> commit -> transactions)
+/// through the real pipeline with the Lot 9 middleware/validation in place,
+/// complementing the deep per-feature unit tests already covering
+/// BankImport/Transactions in isolation.
 /// </summary>
 [Collection(ApiTestCollection.Name)]
 public class BankAccountImportFlowTests(CustomWebApplicationFactory factory)
@@ -18,8 +19,18 @@ public class BankAccountImportFlowTests(CustomWebApplicationFactory factory)
         "\"Date Opération\";\"Date Valeur\";Libellé;\"Libellé Suggéré\";Catégorie;\"Catégorie Parente\";Solde;Commentaire;\"Numéro Compte\";\"Libellé Compte\";Solde;Pointage\r\n" +
         "2026-08-05;2026-08-05;\"PRLV SEPA EXAMPLE\";Example;\"Loyers, Charges\";Logement;-700,00;;00000000009;BoursoBank;1000.00;Non\r\n";
 
+    private static async Task<HttpResponseMessage> PreviewSampleCsvAsync(HttpClient client, int accountId)
+    {
+        using var content = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(SampleCsv));
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
+        content.Add(fileContent, "file", "statement.csv");
+
+        return await client.PostAsync($"/api/bank-accounts/{accountId}/import/preview", content);
+    }
+
     [Fact]
-    public async Task CreateAccount_ImportStatement_TransactionAppearsInSearch()
+    public async Task CreateAccount_PreviewThenCommitStatement_TransactionAppearsInSearch()
     {
         var client = await factory.CreateAuthenticatedClientAsync();
 
@@ -27,14 +38,18 @@ public class BankAccountImportFlowTests(CustomWebApplicationFactory factory)
             "/api/bank-accounts", new CreateBankAccountRequest("BoursoBank", "Compte courant", null));
         var account = await accountResponse.Content.ReadFromJsonAsync<BankAccountResponse>();
 
-        using var content = new MultipartFormDataContent();
-        var fileContent = new ByteArrayContent(new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(SampleCsv));
-        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/csv");
-        content.Add(fileContent, "file", "statement.csv");
+        var previewResponse = await PreviewSampleCsvAsync(client, account!.Id);
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+        var previewRows = await previewResponse.Content.ReadFromJsonAsync<List<ImportRowResponse>>();
+        var previewRow = Assert.Single(previewRows!);
+        Assert.Equal(-700.00m, previewRow.Amount);
+        Assert.Equal("Logement", previewRow.CategoryName);
 
-        var importResponse = await client.PostAsync($"/api/bank-accounts/{account!.Id}/import", content);
-        Assert.Equal(HttpStatusCode.OK, importResponse.StatusCode);
-        var summary = await importResponse.Content.ReadFromJsonAsync<ImportSummaryResponse>();
+        var commitRequest = new ImportCommitRequest(
+            [new ImportCommitRowRequest(previewRow.Date, previewRow.RawLabel, previewRow.CleanedLabel, previewRow.Amount, previewRow.CategoryId)]);
+        var commitResponse = await client.PostAsJsonAsync($"/api/bank-accounts/{account.Id}/import/commit", commitRequest);
+        Assert.Equal(HttpStatusCode.OK, commitResponse.StatusCode);
+        var summary = await commitResponse.Content.ReadFromJsonAsync<ImportSummaryResponse>();
         Assert.Equal(1, summary!.NewTransactionsImported);
 
         var searchResponse = await client.GetAsync($"/api/transactions?bankAccountId={account.Id}");
@@ -42,5 +57,43 @@ public class BankAccountImportFlowTests(CustomWebApplicationFactory factory)
         var transaction = Assert.Single(page!.Items);
         Assert.Equal(-700.00m, transaction.Amount);
         Assert.Equal("Logement", transaction.CategoryName);
+    }
+
+    [Fact]
+    public async Task Preview_DoesNotPersistAnything()
+    {
+        var client = await factory.CreateAuthenticatedClientAsync();
+
+        var accountResponse = await client.PostAsJsonAsync(
+            "/api/bank-accounts", new CreateBankAccountRequest("BoursoBank", "Compte courant", null));
+        var account = await accountResponse.Content.ReadFromJsonAsync<BankAccountResponse>();
+
+        await PreviewSampleCsvAsync(client, account!.Id);
+
+        var searchResponse = await client.GetAsync($"/api/transactions?bankAccountId={account.Id}");
+        var page = await searchResponse.Content.ReadFromJsonAsync<TransactionPageResponse>();
+        Assert.Empty(page!.Items);
+    }
+
+    [Fact]
+    public async Task Commit_RowExcludedFromThePreview_IsNeverImported()
+    {
+        var client = await factory.CreateAuthenticatedClientAsync();
+
+        var accountResponse = await client.PostAsJsonAsync(
+            "/api/bank-accounts", new CreateBankAccountRequest("BoursoBank", "Compte courant", null));
+        var account = await accountResponse.Content.ReadFromJsonAsync<BankAccountResponse>();
+
+        await PreviewSampleCsvAsync(client, account!.Id);
+
+        // The user reviewed the preview and excluded the only row - commit sends an empty list.
+        var commitRequest = new ImportCommitRequest([]);
+        var commitResponse = await client.PostAsJsonAsync($"/api/bank-accounts/{account.Id}/import/commit", commitRequest);
+        var summary = await commitResponse.Content.ReadFromJsonAsync<ImportSummaryResponse>();
+        Assert.Equal(0, summary!.NewTransactionsImported);
+
+        var searchResponse = await client.GetAsync($"/api/transactions?bankAccountId={account.Id}");
+        var page = await searchResponse.Content.ReadFromJsonAsync<TransactionPageResponse>();
+        Assert.Empty(page!.Items);
     }
 }

@@ -57,11 +57,22 @@ une exception bien gérée comme un faux 500, cf. roadmap).
 
 ## Import bancaire
 
-`POST /api/bank-accounts/{id}/import` (multipart, champ `file`) accepte un
-export CSV BoursoBank. Le pipeline (voir `docs/roadmap.md#lot-3--import-bancaire-fait`)
-déduplique sur réimport et détecte les virements entre comptes du même
-utilisateur. Aucun autre format bancaire n'est géré pour l'instant — le
-`BankName` du compte doit correspondre exactement au `BankName` d'un parseur
+Import en deux temps, aucune transaction n'est créée avant que l'utilisateur ait
+validé — voir `docs/roadmap.md#revue-avant-import-fait` pour le détail :
+
+- `POST /api/bank-accounts/{id}/import/preview` (multipart, champ `file`) parse
+  l'export CSV, déduplique contre les transactions déjà en base et propose une
+  catégorie par ligne, sans rien persister.
+- `POST /api/bank-accounts/{id}/import/commit` (`{ rows: [...] }`) reçoit
+  exactement les lignes que l'utilisateur a gardées (certaines potentiellement
+  exclues, d'autres avec une catégorie modifiée) et les enregistre — la
+  déduplication est revérifiée à ce stade au cas où quelque chose aurait changé
+  entre les deux appels.
+
+Le pipeline (voir `docs/roadmap.md#lot-3--import-bancaire-fait`) détecte aussi les
+virements entre comptes du même utilisateur, une fois les transactions
+persistées par `commit`. Aucun autre format bancaire n'est géré pour l'instant —
+le `BankName` du compte doit correspondre exactement au `BankName` d'un parseur
 enregistré (`"BoursoBank"`).
 
 Le parseur a été validé contre un vrai export ; par précaution ce fichier n'a
@@ -137,6 +148,13 @@ Les dépenses récurrentes hebdomadaires ne sont pas approximées à "montant ×
 4,33" : le nombre exact d'occurrences du jour de semaine dans le mois ciblé
 est calculé (voir `RecurringExpenseProjector`), donc le prévisionnel varie
 correctement d'un mois à l'autre plutôt que d'utiliser une moyenne lissée.
+
+`GET /api/calendar/monthly?month=` et `GET /api/calendar/annual?year=`
+exposent les mêmes occurrences datées (`RecurringExpenseProjector.GetOccurrenceDates`
++ `LoanProjector`) pour une vue calendrier plutôt qu'un total : chaque entrée
+porte sa date exacte et un drapeau `isLastOccurrence` (dernier paiement avant
+`EndDate`). Les lignes de `Budget` n'y apparaissent jamais — elles ne sont pas
+rattachées à un jour précis.
 
 ## Dashboard
 
@@ -310,19 +328,28 @@ routes selon l'état de connexion.
 ### Comptes bancaires & import CSV
 
 Écran `/accounts` (protégé) : liste, création, édition et suppression des comptes
-bancaires, plus import d'un relevé CSV par compte (`POST /api/bank-accounts/{id}/import`,
-multipart). Le sélecteur de banque à la création est limité à `BoursoBank` — seul
-parseur (`IBankStatementParser`) enregistré côté backend pour l'instant ; un import
-sur une autre valeur échouerait en 400. Voir
-[`docs/roadmap.md`](docs/roadmap.md#lot-11--écran-comptes--import-csv-fait).
+bancaires, plus import d'un relevé CSV par compte en deux temps : "Aperçu" appelle
+`POST .../import/preview` (multipart) et ouvre une modale listant les lignes
+détectées (catégorie déjà proposée, éditable), chacune décochable ; "Confirmer
+l'import" envoie uniquement les lignes gardées à `POST .../import/commit`. Rien
+n'est enregistré tant que cette confirmation n'a pas eu lieu. Le sélecteur de
+banque à la création est limité à `BoursoBank` — seul parseur
+(`IBankStatementParser`) enregistré côté backend pour l'instant ; un import sur
+une autre valeur échouerait en 400. Voir
+[`docs/roadmap.md`](docs/roadmap.md#lot-11--écran-comptes--import-csv-fait) et
+[`docs/roadmap.md`](docs/roadmap.md#revue-avant-import-fait).
 
 ### Transactions & règles de catégorisation
 
 Écran `/transactions` (protégé) : liste paginée avec filtres (compte, catégorie,
-période, recherche débouncée, exclusion des virements internes — mêmes paramètres que
-`GET /api/transactions`), recatégorisation manuelle par ligne, et une section de gestion
-des `CategoryRule` (motif → catégorie → priorité) juste en dessous. Voir
-[`docs/roadmap.md`](docs/roadmap.md#lot-12--écran-transactions-fait).
+période — dont deux raccourcis "Ce mois-ci"/"3 derniers mois", recherche débouncée,
+exclusion des virements internes — mêmes paramètres que `GET /api/transactions`),
+recatégorisation manuelle par ligne, une note personnelle libre par transaction, un
+raccourci "+ Récurrente" par ligne de dépense (crée une `RecurringExpense` pré-remplie
+depuis la transaction — libellé, montant, catégorie, date — sans lien conservé ensuite,
+voir [`docs/roadmap.md`](docs/roadmap.md#raccourci-marquer-comme-récurrente-sur-les-transactions-fait)),
+et une section de gestion des `CategoryRule` (motif → catégorie → priorité) juste en
+dessous. Voir [`docs/roadmap.md`](docs/roadmap.md#lot-12--écran-transactions-fait).
 
 ### Dashboard
 
@@ -343,9 +370,12 @@ les lots 6-7 mais aucun écran jusqu'ici :
 - `/loans` : crédits (`Loan`) — CRUD, barre de progression du remboursement, taux et
   mensualité.
 - `/forecast` : prévisionnel combiné (`GET /api/forecast/monthly|annual`), vue mensuelle
-  (détail par catégorie avec un badge Budget/Récurrent, remboursements de crédits, total)
-  ou annuelle (total par mois). Sous ces vues, deux sections de gestion sans route
-  propre : **Budget du mois** (`Budget`, seulement en vue mensuelle — le formulaire
+  (détail par catégorie avec un badge Budget/Récurrent, remboursements de crédits, total),
+  annuelle (total par mois), ou **Calendrier** (`GET /api/calendar/monthly|annual`) — une
+  grille mensuelle (semaine du lundi, navigation ‹/›) ou une liste annuelle groupée par
+  mois des échéances datées d'abonnements et de crédits, avec un repère "(dernière)" sur
+  le dernier paiement avant une `EndDate`. Sous ces vues, deux sections de gestion sans
+  route propre : **Budget du mois** (`Budget`, seulement en vue mensuelle — le formulaire
   d'ajout exclut les catégories déjà budgétées pour éviter un 409 prévisible) et
   **Dépenses récurrentes** (`RecurringExpense`, toujours visible).
 
@@ -361,10 +391,33 @@ volontaire) — installabilité seulement, aucun mode hors ligne fonctionnel
 `apple-touch-icon.png` (iOS "Ajouter à l'écran d'accueil"), `pwa-192x192.png`/
 `pwa-512x512.png` (icônes standard) et `maskable-icon-512x512.png` (plein
 cadre, logo dans la "safe zone" à 80 % — voir la spec W3C sur les icônes
-maskable) sont tous dérivés du même symbole € sur fond `#0EA5E9`. Voir
+maskable) sont tous dérivés du même symbole € sur fond `#C6A15B` (couleur
+d'accent de la DA, voir plus bas — régénérées après le Lot 15 qui les avait
+d'abord faites en bleu). Voir
 [`docs/roadmap.md`](docs/roadmap.md#lot-15--finalisation-pwa-fait) pour le
-détail. Pas d'outil Lighthouse ici : audit d'installabilité réel et test
-"Ajouter à l'écran d'accueil" à faire manuellement.
+détail de la construction des icônes. Pas d'outil Lighthouse ici : audit
+d'installabilité réel et test "Ajouter à l'écran d'accueil" à faire
+manuellement.
+
+### Direction artistique
+
+Sombre par défaut, avec une variante claire (bouton "Clair"/"Sombre" dans la
+sidebar, ou préférence système par défaut) : fond quasi-noir chaud en sombre /
+presque blanc chaud en clair, cartes/sidebar légèrement contrastées avec le
+fond, texte en trois niveaux (`text-heading`/`text-body`/`text-muted`), accent
+laiton (`#C6A15B` en sombre, une nuance plus soutenue en clair pour rester
+lisible en texte), titres en **Space Grotesk**, corps de texte en **IBM Plex
+Sans** (Google Fonts). Conventions de couleur métier : `positive`/`negative`
+(vert/rouge) pour les montants, `info` (bleu) réservé au badge "Récurrent" du
+prévisionnel pour ne pas se confondre avec l'accent laiton. Tous les tokens
+sont définis une seule fois dans `src/index.css` (`@theme` pour les valeurs
+sombres par défaut, puis une redéfinition des mêmes variables sous
+`@media (prefers-color-scheme: light)` et `[data-theme='light']`) — jamais de
+couleur Tailwind brute (`gray-900`, `sky-600`, ...) ni de variante `dark:`
+dans les composants, toujours `bg-surface`/`text-accent`/etc. Voir
+[`docs/roadmap.md`](docs/roadmap.md#refonte-de-la-direction-artistique) et
+[`docs/roadmap.md`](docs/roadmap.md#mode-clairsombre-fait) pour le détail des
+choix.
 
 ### Tests et qualité
 

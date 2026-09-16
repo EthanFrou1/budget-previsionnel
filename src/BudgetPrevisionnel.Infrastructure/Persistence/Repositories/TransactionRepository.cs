@@ -74,8 +74,29 @@ public sealed class TransactionRepository(BudgetDbContext dbContext) : ITransact
 
         var totalCount = await filtered.CountAsync(cancellationToken);
 
-        var items = await filtered
-            .OrderByDescending(t => t.Date).ThenByDescending(t => t.Id)
+        // Id is always the tie-breaker (same direction as the primary column) so paging
+        // stays stable when many rows share the same sorted value (e.g. same Date).
+        IOrderedQueryable<Transaction> ordered = query.SortBy switch
+        {
+            TransactionSortColumn.BankAccount => query.SortDescending
+                ? filtered.OrderByDescending(t => t.BankAccount.Label)
+                : filtered.OrderBy(t => t.BankAccount.Label),
+            TransactionSortColumn.Label => query.SortDescending
+                ? filtered.OrderByDescending(t => t.CleanedLabel ?? t.RawLabel)
+                : filtered.OrderBy(t => t.CleanedLabel ?? t.RawLabel),
+            TransactionSortColumn.Amount => query.SortDescending
+                ? filtered.OrderByDescending(t => t.Amount)
+                : filtered.OrderBy(t => t.Amount),
+            TransactionSortColumn.Category => query.SortDescending
+                ? filtered.OrderByDescending(t => t.Category!.Name)
+                : filtered.OrderBy(t => t.Category!.Name),
+            _ => query.SortDescending
+                ? filtered.OrderByDescending(t => t.Date)
+                : filtered.OrderBy(t => t.Date),
+        };
+        ordered = query.SortDescending ? ordered.ThenByDescending(t => t.Id) : ordered.ThenBy(t => t.Id);
+
+        var items = await ordered
             .Skip((query.Page - 1) * query.PageSize)
             .Take(query.PageSize)
             .Include(t => t.BankAccount)

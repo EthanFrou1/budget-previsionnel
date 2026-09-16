@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiFetch, ApiError } from '../api/client'
-import type { MonthlyForecast } from '../api/types'
+import type { CalendarEntry, MonthlyForecast } from '../api/types'
 import { AuthContextTestProvider } from '../auth/testUtils'
 import { ForecastPage } from './ForecastPage'
 
@@ -26,7 +26,14 @@ function buildAnnual(year: number): MonthlyForecast[] {
   }))
 }
 
-function renderPage(overrides: { monthly?: MonthlyForecast; annual?: MonthlyForecast[] } = {}) {
+function renderPage(
+  overrides: {
+    monthly?: MonthlyForecast
+    annual?: MonthlyForecast[]
+    calendarMonthly?: CalendarEntry[]
+    calendarAnnual?: CalendarEntry[]
+  } = {},
+) {
   const monthly: MonthlyForecast = overrides.monthly ?? {
     month: currentMonth,
     categoryLines: [],
@@ -34,6 +41,8 @@ function renderPage(overrides: { monthly?: MonthlyForecast; annual?: MonthlyFore
     total: 0,
   }
   const annual = overrides.annual ?? buildAnnual(currentYear)
+  const calendarMonthly = overrides.calendarMonthly ?? []
+  const calendarAnnual = overrides.calendarAnnual ?? []
 
   vi.mocked(apiFetch).mockImplementation(async (path: unknown) => {
     const p = path as string
@@ -45,6 +54,10 @@ function renderPage(overrides: { monthly?: MonthlyForecast; annual?: MonthlyFore
     }
     if (p === `/api/forecast/annual?year=${currentYear}`) return annual
     if (p.startsWith('/api/forecast/annual?year=')) return []
+    if (p === `/api/calendar/monthly?month=${currentMonth}`) return calendarMonthly
+    if (p.startsWith('/api/calendar/monthly?month=')) return []
+    if (p === `/api/calendar/annual?year=${currentYear}`) return calendarAnnual
+    if (p.startsWith('/api/calendar/annual?year=')) return []
     if (p.startsWith('/api/budgets')) return []
     if (p === '/api/recurring-expenses') return []
     return undefined
@@ -154,5 +167,76 @@ describe('ForecastPage', () => {
     )
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Une erreur est survenue.')
+  })
+
+  it('switches to the calendar view and shows a recurring expense and a loan on their dates', async () => {
+    const day = String(now.getDate()).padStart(2, '0')
+    const todayIso = `${currentMonth.slice(0, 7)}-${day}`
+
+    renderPage({
+      calendarMonthly: [
+        {
+          date: todayIso,
+          label: 'Netflix',
+          amount: 15.99,
+          type: 'RecurringExpense',
+          isLastOccurrence: false,
+        },
+        { date: todayIso, label: 'Prêt auto', amount: 300, type: 'Loan', isLastOccurrence: true },
+      ],
+    })
+    await screen.findByText('Aucune dépense prévue ce mois-ci.')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Calendrier' }))
+
+    expect(await screen.findByText('Netflix')).toBeInTheDocument()
+    expect(screen.getByText('Prêt auto')).toBeInTheDocument()
+    expect(screen.getByText('(dernière)')).toBeInTheDocument()
+  })
+
+  it('shows an empty state on the calendar month view when nothing is due', async () => {
+    renderPage()
+    await screen.findByText('Aucune dépense prévue ce mois-ci.')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Calendrier' }))
+
+    expect(await screen.findByText('Aucune échéance ce mois-ci.')).toBeInTheDocument()
+  })
+
+  it('navigates to the next month on the calendar view', async () => {
+    renderPage()
+    await screen.findByText('Aucune dépense prévue ce mois-ci.')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Calendrier' }))
+    await screen.findByText('Aucune échéance ce mois-ci.')
+    await user.click(screen.getByRole('button', { name: 'Mois suivant' }))
+
+    const nextMonth = `${currentYear}-${String(now.getMonth() + 2).padStart(2, '0')}`
+    await waitFor(() => expect(screen.getByLabelText('Mois')).toHaveValue(nextMonth))
+  })
+
+  it('switches to the calendar annual view and groups entries by month', async () => {
+    renderPage({
+      calendarAnnual: [
+        {
+          date: `${currentYear}-03-05`,
+          label: 'Loyer',
+          amount: 800,
+          type: 'RecurringExpense',
+          isLastOccurrence: false,
+        },
+      ],
+    })
+    await screen.findByText('Aucune dépense prévue ce mois-ci.')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Calendrier' }))
+    await screen.findByText('Aucune échéance ce mois-ci.')
+    await user.click(screen.getByRole('button', { name: 'Année' }))
+
+    expect(await screen.findByText(/Loyer/)).toBeInTheDocument()
   })
 })

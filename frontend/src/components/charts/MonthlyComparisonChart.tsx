@@ -14,11 +14,12 @@ const BAR_GAP = 2
 
 const MONTH_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
 
-// Diverging pair (blue<->red) from the validated palette: income above the zero baseline,
-// expense below it - "above/below a baseline" is exactly the diverging job per the dataviz
-// skill, and blue/red read as opposite poles (unlike e.g. blue/aqua, which are both cool).
-const INCOME_COLOR = 'fill-[#2a78d6] dark:fill-[#3987e5]'
-const EXPENSE_COLOR = 'fill-[#e34948] dark:fill-[#e66767]'
+// Diverging pair (positive<->negative): income above the zero baseline, expense below it -
+// "above/below a baseline" is exactly the diverging job per the dataviz skill, and the two
+// read as opposite poles - also the conventional green/red money semantics, reused from the
+// KPI tiles and transaction amounts rather than an unrelated pair for this one chart.
+const INCOME_COLOR = 'fill-positive'
+const EXPENSE_COLOR = 'fill-negative'
 
 function monthIndex(monthIso: string): number {
   return Number(monthIso.split('-')[1]) - 1
@@ -38,13 +39,13 @@ export function MonthlyComparisonChart({ entries }: { entries: MonthlyComparison
 
   return (
     <div>
-      <div className="flex items-center gap-4 px-2 pb-2 text-xs text-gray-600 dark:text-gray-300">
+      <div className="flex items-center gap-4 px-2 pb-2 text-xs text-body">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#2a78d6] dark:bg-[#3987e5]" />
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-positive" />
           Revenus
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#e34948] dark:bg-[#e66767]" />
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-negative" />
           Dépenses
         </span>
       </div>
@@ -63,16 +64,34 @@ export function MonthlyComparisonChart({ entries }: { entries: MonthlyComparison
             x2={WIDTH - PADDING.right}
             y1={ZERO_Y}
             y2={ZERO_Y}
-            className="stroke-gray-400 dark:stroke-gray-500"
+            className="stroke-muted"
             strokeWidth={1}
           />
-          <text x={PADDING.left - 8} y={ZERO_Y} textAnchor="end" dominantBaseline="middle" className="fill-gray-500 text-[10px] dark:fill-gray-400">
+          <text
+            x={PADDING.left - 8}
+            y={ZERO_Y}
+            textAnchor="end"
+            dominantBaseline="middle"
+            className="fill-muted text-[10px]"
+          >
             0 €
           </text>
-          <text x={PADDING.left - 8} y={ZERO_Y - HALF_HEIGHT} textAnchor="end" dominantBaseline="middle" className="fill-gray-500 text-[10px] dark:fill-gray-400">
+          <text
+            x={PADDING.left - 8}
+            y={ZERO_Y - HALF_HEIGHT}
+            textAnchor="end"
+            dominantBaseline="middle"
+            className="fill-muted text-[10px]"
+          >
             {formatCurrency(maxValue)}
           </text>
-          <text x={PADDING.left - 8} y={ZERO_Y + HALF_HEIGHT} textAnchor="end" dominantBaseline="middle" className="fill-gray-500 text-[10px] dark:fill-gray-400">
+          <text
+            x={PADDING.left - 8}
+            y={ZERO_Y + HALF_HEIGHT}
+            textAnchor="end"
+            dominantBaseline="middle"
+            className="fill-muted text-[10px]"
+          >
             -{formatCurrency(maxValue)}
           </text>
 
@@ -101,7 +120,7 @@ export function MonthlyComparisonChart({ entries }: { entries: MonthlyComparison
                   rx={3}
                   className={EXPENSE_COLOR}
                 />
-                <text x={bandCenter} y={HEIGHT - 6} textAnchor="middle" className="fill-gray-500 text-[10px] dark:fill-gray-400">
+                <text x={bandCenter} y={HEIGHT - 6} textAnchor="middle" className="fill-muted text-[10px]">
                   {MONTH_LABELS[monthIndex(entry.month)]}
                 </text>
                 {/* Hit target spans the whole band, wider than the two bars, per interaction.md. */}
@@ -121,13 +140,13 @@ export function MonthlyComparisonChart({ entries }: { entries: MonthlyComparison
 
         {hovered && hoverIndex !== null && (
           <div
-            className="pointer-events-none absolute top-2 rounded border border-gray-200 bg-white px-2 py-1 text-xs shadow dark:border-gray-600 dark:bg-gray-800"
+            className="pointer-events-none absolute top-2 rounded border border-border bg-surface px-2 py-1 text-xs shadow"
             style={{ left: `${((hoverIndex + 0.5) / entries.length) * 100}%`, transform: 'translateX(-50%)' }}
           >
-            <p className="font-medium text-gray-900 dark:text-white">{MONTH_LABELS[monthIndex(hovered.month)]}</p>
-            <p className="text-gray-600 dark:text-gray-300">Revenus : {formatCurrency(hovered.income)}</p>
-            <p className="text-gray-600 dark:text-gray-300">Dépenses : {formatCurrency(hovered.expense)}</p>
-            <p className="text-gray-600 dark:text-gray-300">Net : {formatCurrency(hovered.net)}</p>
+            <p className="font-medium text-heading">{MONTH_LABELS[monthIndex(hovered.month)]}</p>
+            <p className="text-body">Revenus : {formatCurrency(hovered.income)}</p>
+            <p className="text-body">Dépenses : {formatCurrency(hovered.expense)}</p>
+            <p className="text-body">Net : {formatCurrency(hovered.net)}</p>
           </div>
         )}
       </div>

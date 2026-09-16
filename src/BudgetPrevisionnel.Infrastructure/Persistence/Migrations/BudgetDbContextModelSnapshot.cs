@@ -387,6 +387,10 @@ namespace BudgetPrevisionnel.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsInternalTransfer")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<string>("RawLabel")
                         .IsRequired()
                         .HasMaxLength(500)

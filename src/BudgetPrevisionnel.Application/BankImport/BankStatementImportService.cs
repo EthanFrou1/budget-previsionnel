@@ -6,6 +6,13 @@ using BudgetPrevisionnel.Domain.Entities;
 
 namespace BudgetPrevisionnel.Application.BankImport;
 
+/// <summary>
+/// Split into a preview/commit pair rather than the one-shot import Lot 3 originally
+/// shipped: nothing is persisted until the user has reviewed the parsed rows (excluded
+/// some, adjusted a suggested category) on the frontend. PreviewAsync does the parsing,
+/// deduplication and auto-categorization and stops there; CommitAsync takes back exactly
+/// the rows the client wants kept and persists those.
+/// </summary>
 public sealed class BankStatementImportService(
     IEnumerable<IBankStatementParser> parsers,
     IBankAccountRepository bankAccountRepository,
@@ -13,7 +20,7 @@ public sealed class BankStatementImportService(
     ICategoryRepository categoryRepository,
     ICategoryRuleRepository categoryRuleRepository)
 {
-    public async Task<ImportSummary> ImportAsync(
+    public async Task<IReadOnlyList<ImportRow>> PreviewAsync(
         int userId, int bankAccountId, Stream fileStream, CancellationToken cancellationToken = default)
     {
         var account = await bankAccountRepository.GetByIdForUserAsync(userId, bankAccountId, cancellationToken)
@@ -25,12 +32,14 @@ public sealed class BankStatementImportService(
         var parsed = await parser.ParseAsync(fileStream, cancellationToken);
 
         var existingCounts = await transactionRepository.GetFingerprintCountsAsync(bankAccountId, cancellationToken);
-        var newParsed = TransactionDeduplicator.RemoveAlreadyImported(parsed, existingCounts);
+        var newParsed = TransactionDeduplicator.RemoveAlreadyImported(
+            parsed, existingCounts, p => new TransactionFingerprint(p.Date, p.RawLabel, p.Amount));
 
         var userRules = await categoryRuleRepository.GetByOwnerOrderedByPriorityAsync(userId, cancellationToken);
 
-        var newTransactions = new List<Transaction>(newParsed.Count);
+        var rows = new List<ImportRow>(newParsed.Count);
         var categoryIdCache = new Dictionary<string, int?>();
+        var categoryNameCache = new Dictionary<int, string?>();
 
         foreach (var p in newParsed)
         {
@@ -40,26 +49,47 @@ public sealed class BankStatementImportService(
             // equivalent but a user rule matching "TOTAL" on the label might.
             var categoryId = await ResolveSystemCategoryIdAsync(p.SuggestedCategory, categoryIdCache, cancellationToken)
                 ?? CategoryRuleMatcher.Match(userRules, p.RawLabel, p.CleanedLabel);
+            var categoryName = categoryId is null
+                ? null
+                : await ResolveCategoryNameAsync(categoryId.Value, categoryNameCache, cancellationToken);
 
-            newTransactions.Add(new Transaction
-            {
-                BankAccountId = bankAccountId,
-                Date = p.Date,
-                RawLabel = p.RawLabel,
-                CleanedLabel = p.CleanedLabel,
-                Amount = p.Amount,
-                CategoryId = categoryId
-            });
+            rows.Add(new ImportRow(p.Date, p.RawLabel, p.CleanedLabel, p.Amount, categoryId, categoryName));
         }
+
+        return rows;
+    }
+
+    public async Task<ImportSummary> CommitAsync(
+        int userId, int bankAccountId, IReadOnlyList<ImportRow> rows, CancellationToken cancellationToken = default)
+    {
+        _ = await bankAccountRepository.GetByIdForUserAsync(userId, bankAccountId, cancellationToken)
+            ?? throw new BankAccountNotFoundException(bankAccountId);
+
+        // Re-checked here too, not just at preview: something else (another import, a
+        // manual entry) could have landed a matching transaction in the time it took the
+        // user to review the preview.
+        var existingCounts = await transactionRepository.GetFingerprintCountsAsync(bankAccountId, cancellationToken);
+        var newRows = TransactionDeduplicator.RemoveAlreadyImported(
+            rows, existingCounts, r => new TransactionFingerprint(r.Date, r.RawLabel, r.Amount));
+
+        var newTransactions = newRows.Select(r => new Transaction
+        {
+            BankAccountId = bankAccountId,
+            Date = r.Date,
+            RawLabel = r.RawLabel,
+            CleanedLabel = r.CleanedLabel,
+            Amount = r.Amount,
+            CategoryId = r.CategoryId
+        }).ToList();
 
         await transactionRepository.AddRangeAsync(newTransactions, cancellationToken);
 
         var transferMatchCount = await DetectAndFlagInternalTransfersAsync(userId, bankAccountId, newTransactions, cancellationToken);
 
         return new ImportSummary(
-            TotalRowsParsed: parsed.Count,
+            TotalRowsParsed: rows.Count,
             NewTransactionsImported: newTransactions.Count,
-            DuplicatesSkipped: parsed.Count - newTransactions.Count,
+            DuplicatesSkipped: rows.Count - newTransactions.Count,
             InternalTransfersDetected: transferMatchCount);
     }
 
@@ -81,6 +111,19 @@ public sealed class BankStatementImportService(
         var category = await categoryRepository.FindSystemCategoryByNameAsync(suggestedCategory, cancellationToken);
         cache[suggestedCategory] = category?.Id;
         return category?.Id;
+    }
+
+    private async Task<string?> ResolveCategoryNameAsync(
+        int categoryId, Dictionary<int, string?> cache, CancellationToken cancellationToken)
+    {
+        if (cache.TryGetValue(categoryId, out var cached))
+        {
+            return cached;
+        }
+
+        var category = await categoryRepository.GetByIdAsync(categoryId, cancellationToken);
+        cache[categoryId] = category?.Name;
+        return category?.Name;
     }
 
     private async Task<int> DetectAndFlagInternalTransfersAsync(

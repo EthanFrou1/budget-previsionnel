@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { ApiError } from '../api/client'
 import type { BalancePoint, BankAccount, CategoryBreakdownEntry, MonthlyComparisonEntry } from '../api/types'
-import { AppHeader } from '../components/AppHeader'
+import { AppLayout } from '../components/AppLayout'
 import { BalanceEvolutionChart } from '../components/charts/BalanceEvolutionChart'
 import { CategoryBreakdownChart } from '../components/charts/CategoryBreakdownChart'
 import { MonthlyComparisonChart } from '../components/charts/MonthlyComparisonChart'
@@ -40,18 +40,18 @@ function errorMessage(err: unknown): string {
 
 function StatTile({ label, value, caption }: { label: string; value: string; caption?: string }) {
   return (
-    <div className="rounded-lg bg-white p-4 shadow dark:bg-gray-800">
-      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{value}</p>
-      {caption && <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">{caption}</p>}
+    <div className="rounded-lg bg-surface p-4 shadow">
+      <p className="text-xs font-medium text-muted">{label}</p>
+      <p className="font-display mt-1 text-2xl font-semibold text-heading">{value}</p>
+      {caption && <p className="mt-1 text-xs text-muted">{caption}</p>}
     </div>
   )
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg bg-white shadow dark:bg-gray-800">
-      <h2 className="px-4 pt-4 font-medium text-gray-900 dark:text-white">{title}</h2>
+    <section className="rounded-lg bg-surface shadow">
+      <h2 className="font-display px-4 pt-4 font-medium text-heading">{title}</h2>
       {children}
     </section>
   )
@@ -93,7 +93,8 @@ export function DashboardPage() {
 
   const breakdownQuery = useQuery({
     queryKey: ['dashboard', 'category-breakdown', bankAccountId, range],
-    queryFn: () => apiClient<CategoryBreakdownEntry[]>(`/api/dashboard/category-breakdown?${commonParams.toString()}`),
+    queryFn: () =>
+      apiClient<CategoryBreakdownEntry[]>(`/api/dashboard/category-breakdown?${commonParams.toString()}`),
     placeholderData: keepPreviousData,
   })
 
@@ -102,150 +103,148 @@ export function DashboardPage() {
 
   const monthlyQuery = useQuery({
     queryKey: ['dashboard', 'monthly-comparison', bankAccountId, year],
-    queryFn: () => apiClient<MonthlyComparisonEntry[]>(`/api/dashboard/monthly-comparison?${monthlyParams.toString()}`),
+    queryFn: () =>
+      apiClient<MonthlyComparisonEntry[]>(`/api/dashboard/monthly-comparison?${monthlyParams.toString()}`),
     placeholderData: keepPreviousData,
   })
 
   const expenseTotal = breakdownQuery.data?.reduce((sum, e) => sum + e.amount, 0) ?? null
   const netTotal = balanceQuery.data?.reduce((sum, p) => sum + p.netChange, 0) ?? null
-  const incomeTotal = isConsolidated && expenseTotal !== null && netTotal !== null ? netTotal + expenseTotal : null
+  const incomeTotal =
+    isConsolidated && expenseTotal !== null && netTotal !== null ? netTotal + expenseTotal : null
 
   return (
-    <div className="min-h-svh bg-gray-50 dark:bg-gray-900">
-      <AppHeader />
+    <AppLayout>
+      <h1 className="font-display text-xl font-semibold text-heading">Dashboard</h1>
 
-      <main className="mx-auto max-w-5xl space-y-6 p-4">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Dashboard</h1>
-
-        <section className="flex flex-wrap items-end gap-3 rounded-lg bg-white p-4 shadow dark:bg-gray-800">
-          <div>
-            <label htmlFor="dashboard-account" className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              Compte
-            </label>
-            <select
-              id="dashboard-account"
-              value={bankAccountId}
-              onChange={(e) => setBankAccountId(e.target.value)}
-              className="mt-1 rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            >
-              <option value="">Tous les comptes</option>
-              {accountsQuery.data?.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex gap-1" role="group" aria-label="Période">
-            {(
-              [
-                ['month', 'Ce mois-ci'],
-                ['quarter', '3 derniers mois'],
-                ['year', 'Cette année'],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                onClick={() => applyPreset(value)}
-                className={
-                  preset === value
-                    ? 'rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white'
-                    : 'rounded border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700'
-                }
-              >
-                {label}
-              </button>
+      <section className="flex flex-wrap items-end gap-3 rounded-lg bg-surface p-4 shadow">
+        <div>
+          <label htmlFor="dashboard-account" className="block text-xs font-medium text-body">
+            Compte
+          </label>
+          <select
+            id="dashboard-account"
+            value={bankAccountId}
+            onChange={(e) => setBankAccountId(e.target.value)}
+            className="mt-1 rounded border border-border px-2 py-1.5 text-sm bg-field text-heading"
+          >
+            <option value="">Tous les comptes</option>
+            {accountsQuery.data?.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.label}
+              </option>
             ))}
-          </div>
-
-          <div>
-            <label htmlFor="dashboard-from" className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              Du
-            </label>
-            <input
-              id="dashboard-from"
-              type="date"
-              value={range.fromDate}
-              onChange={(e) => setRange((r) => ({ ...r, fromDate: e.target.value }))}
-              className="mt-1 rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
-          </div>
-          <div>
-            <label htmlFor="dashboard-to" className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              Au
-            </label>
-            <input
-              id="dashboard-to"
-              type="date"
-              value={range.toDate}
-              onChange={(e) => setRange((r) => ({ ...r, toDate: e.target.value }))}
-              className="mt-1 rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="dashboard-starting-balance" className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              Solde de départ (optionnel)
-            </label>
-            <input
-              id="dashboard-starting-balance"
-              type="number"
-              step="0.01"
-              value={startingBalanceInput}
-              onChange={(e) => setStartingBalanceInput(e.target.value)}
-              placeholder="0"
-              className="mt-1 w-32 rounded border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
-          </div>
-        </section>
-
-        <div className="grid gap-4 sm:grid-cols-3">
-          {incomeTotal !== null && <StatTile label="Revenus" value={formatCurrency(incomeTotal)} />}
-          {expenseTotal !== null && <StatTile label="Dépenses" value={formatCurrency(expenseTotal)} />}
-          {netTotal !== null && (
-            <StatTile
-              label="Variation du solde"
-              value={formatCurrency(netTotal)}
-              caption={!isConsolidated ? 'Inclut les virements internes vus depuis ce compte' : undefined}
-            />
-          )}
+          </select>
         </div>
 
-        <ChartCard title="Évolution du solde cumulé">
-          {balanceQuery.isPending && <p className="p-4 text-gray-600 dark:text-gray-300">Chargement…</p>}
-          {balanceQuery.isError && (
-            <p role="alert" className="m-4 rounded bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-              {errorMessage(balanceQuery.error)}
-            </p>
-          )}
-          {balanceQuery.data && <BalanceEvolutionChart points={balanceQuery.data} />}
-        </ChartCard>
+        <div className="flex gap-1" role="group" aria-label="Période">
+          {(
+            [
+              ['month', 'Ce mois-ci'],
+              ['quarter', '3 derniers mois'],
+              ['year', 'Cette année'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => applyPreset(value)}
+              className={
+                preset === value
+                  ? 'rounded bg-accent px-3 py-1.5 text-sm font-medium text-white'
+                  : 'rounded border border-border px-3 py-1.5 text-sm text-body hover:bg-overlay'
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
-        <ChartCard title="Dépenses par catégorie">
-          {breakdownQuery.isPending && <p className="p-4 text-gray-600 dark:text-gray-300">Chargement…</p>}
-          {breakdownQuery.isError && (
-            <p role="alert" className="m-4 rounded bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-              {errorMessage(breakdownQuery.error)}
-            </p>
-          )}
-          {breakdownQuery.data && (
-            <div className="p-4">
-              <CategoryBreakdownChart entries={breakdownQuery.data} />
-            </div>
-          )}
-        </ChartCard>
+        <div>
+          <label htmlFor="dashboard-from" className="block text-xs font-medium text-body">
+            Du
+          </label>
+          <input
+            id="dashboard-from"
+            type="date"
+            value={range.fromDate}
+            onChange={(e) => setRange((r) => ({ ...r, fromDate: e.target.value }))}
+            className="mt-1 rounded border border-border px-2 py-1.5 text-sm bg-field text-heading"
+          />
+        </div>
+        <div>
+          <label htmlFor="dashboard-to" className="block text-xs font-medium text-body">
+            Au
+          </label>
+          <input
+            id="dashboard-to"
+            type="date"
+            value={range.toDate}
+            onChange={(e) => setRange((r) => ({ ...r, toDate: e.target.value }))}
+            className="mt-1 rounded border border-border px-2 py-1.5 text-sm bg-field text-heading"
+          />
+        </div>
 
-        <ChartCard title={`Comparatif mensuel ${year}`}>
-          {monthlyQuery.isPending && <p className="p-4 text-gray-600 dark:text-gray-300">Chargement…</p>}
-          {monthlyQuery.isError && (
-            <p role="alert" className="m-4 rounded bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-              {errorMessage(monthlyQuery.error)}
-            </p>
-          )}
-          {monthlyQuery.data && <MonthlyComparisonChart entries={monthlyQuery.data} />}
-        </ChartCard>
-      </main>
-    </div>
+        <div>
+          <label htmlFor="dashboard-starting-balance" className="block text-xs font-medium text-body">
+            Solde de départ (optionnel)
+          </label>
+          <input
+            id="dashboard-starting-balance"
+            type="number"
+            step="0.01"
+            value={startingBalanceInput}
+            onChange={(e) => setStartingBalanceInput(e.target.value)}
+            placeholder="0"
+            className="mt-1 w-32 rounded border border-border px-2 py-1.5 text-sm bg-field text-heading"
+          />
+        </div>
+      </section>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        {incomeTotal !== null && <StatTile label="Revenus" value={formatCurrency(incomeTotal)} />}
+        {expenseTotal !== null && <StatTile label="Dépenses" value={formatCurrency(expenseTotal)} />}
+        {netTotal !== null && (
+          <StatTile
+            label="Variation du solde"
+            value={formatCurrency(netTotal)}
+            caption={!isConsolidated ? 'Inclut les virements internes vus depuis ce compte' : undefined}
+          />
+        )}
+      </div>
+
+      <ChartCard title="Évolution du solde cumulé">
+        {balanceQuery.isPending && <p className="p-4 text-body">Chargement…</p>}
+        {balanceQuery.isError && (
+          <p role="alert" className="m-4 rounded bg-negative/10 px-3 py-2 text-sm text-negative">
+            {errorMessage(balanceQuery.error)}
+          </p>
+        )}
+        {balanceQuery.data && <BalanceEvolutionChart points={balanceQuery.data} />}
+      </ChartCard>
+
+      <ChartCard title="Dépenses par catégorie">
+        {breakdownQuery.isPending && <p className="p-4 text-body">Chargement…</p>}
+        {breakdownQuery.isError && (
+          <p role="alert" className="m-4 rounded bg-negative/10 px-3 py-2 text-sm text-negative">
+            {errorMessage(breakdownQuery.error)}
+          </p>
+        )}
+        {breakdownQuery.data && (
+          <div className="p-4">
+            <CategoryBreakdownChart entries={breakdownQuery.data} />
+          </div>
+        )}
+      </ChartCard>
+
+      <ChartCard title={`Comparatif mensuel ${year}`}>
+        {monthlyQuery.isPending && <p className="p-4 text-body">Chargement…</p>}
+        {monthlyQuery.isError && (
+          <p role="alert" className="m-4 rounded bg-negative/10 px-3 py-2 text-sm text-negative">
+            {errorMessage(monthlyQuery.error)}
+          </p>
+        )}
+        {monthlyQuery.data && <MonthlyComparisonChart entries={monthlyQuery.data} />}
+      </ChartCard>
+    </AppLayout>
   )
 }

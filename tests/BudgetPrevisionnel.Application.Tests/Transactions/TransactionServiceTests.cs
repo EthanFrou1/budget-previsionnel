@@ -146,6 +146,76 @@ public class TransactionServiceTests
     }
 
     [Fact]
+    public async Task SearchAsync_SortByAmountAscending_OrdersFromSmallestToLargest()
+    {
+        var (accounts, transactions, _, service) = CreateSubject();
+        var account = accounts.Add(1, "BoursoBank", "Compte courant");
+        await transactions.AddRangeAsync(
+        [
+            Tx(0, account.Id, new DateOnly(2026, 8, 1), "B", -50m),
+            Tx(0, account.Id, new DateOnly(2026, 8, 2), "A", -200m),
+            Tx(0, account.Id, new DateOnly(2026, 8, 3), "C", 10m)
+        ]);
+
+        var result = await service.SearchAsync(
+            1, null, null, null, null, null, false, 1, 50, sortBy: "amount", sortDirection: "asc");
+
+        Assert.Equal(["A", "B", "C"], result.Items.Select(t => t.RawLabel));
+    }
+
+    [Fact]
+    public async Task SearchAsync_SortByLabelDescending_OrdersReverseAlphabetically()
+    {
+        var (accounts, transactions, _, service) = CreateSubject();
+        var account = accounts.Add(1, "BoursoBank", "Compte courant");
+        await transactions.AddRangeAsync(
+        [
+            Tx(0, account.Id, new DateOnly(2026, 8, 1), "Alpha", -10m),
+            Tx(0, account.Id, new DateOnly(2026, 8, 2), "Beta", -10m),
+            Tx(0, account.Id, new DateOnly(2026, 8, 3), "Charlie", -10m)
+        ]);
+
+        var result = await service.SearchAsync(
+            1, null, null, null, null, null, false, 1, 50, sortBy: "label", sortDirection: "desc");
+
+        Assert.Equal(["Charlie", "Beta", "Alpha"], result.Items.Select(t => t.RawLabel));
+    }
+
+    [Fact]
+    public async Task SearchAsync_SortByDateAscending_ReversesTheDefaultOrder()
+    {
+        var (accounts, transactions, _, service) = CreateSubject();
+        var account = accounts.Add(1, "BoursoBank", "Compte courant");
+        await transactions.AddRangeAsync(
+        [
+            Tx(0, account.Id, new DateOnly(2026, 8, 1), "Oldest", -10m),
+            Tx(0, account.Id, new DateOnly(2026, 8, 15), "Newest", -10m)
+        ]);
+
+        var result = await service.SearchAsync(
+            1, null, null, null, null, null, false, 1, 50, sortBy: "date", sortDirection: "asc");
+
+        Assert.Equal(["Oldest", "Newest"], result.Items.Select(t => t.RawLabel));
+    }
+
+    [Fact]
+    public async Task SearchAsync_UnknownSortBy_FallsBackToDateDescending()
+    {
+        var (accounts, transactions, _, service) = CreateSubject();
+        var account = accounts.Add(1, "BoursoBank", "Compte courant");
+        await transactions.AddRangeAsync(
+        [
+            Tx(0, account.Id, new DateOnly(2026, 8, 1), "Oldest", -10m),
+            Tx(0, account.Id, new DateOnly(2026, 8, 15), "Newest", -10m)
+        ]);
+
+        var result = await service.SearchAsync(
+            1, null, null, null, null, null, false, 1, 50, sortBy: "not-a-column");
+
+        Assert.Equal(["Newest", "Oldest"], result.Items.Select(t => t.RawLabel));
+    }
+
+    [Fact]
     public async Task SearchAsync_AnotherUsersTransactions_NeverIncluded()
     {
         var (accounts, transactions, _, service) = CreateSubject();
@@ -222,5 +292,63 @@ public class TransactionServiceTests
         var transactionId = transactions.All[0].Id;
 
         await Assert.ThrowsAsync<InvalidReferenceException>(() => service.UpdateCategoryAsync(1, transactionId, 1));
+    }
+
+    [Fact]
+    public async Task UpdateNotesAsync_ValidNote_TrimsAndSetsNotes()
+    {
+        var (accounts, transactions, _, service) = CreateSubject();
+        var account = accounts.Add(1, "BoursoBank", "Compte courant");
+        await transactions.AddRangeAsync([Tx(0, account.Id, new DateOnly(2026, 8, 1), "Achat", -10m)]);
+        var transactionId = transactions.All[0].Id;
+
+        var updated = await service.UpdateNotesAsync(1, transactionId, "  Remboursé par Paul  ");
+
+        Assert.Equal("Remboursé par Paul", updated.Notes);
+    }
+
+    [Fact]
+    public async Task UpdateNotesAsync_BlankNote_ClearsNotes()
+    {
+        var (accounts, transactions, _, service) = CreateSubject();
+        var account = accounts.Add(1, "BoursoBank", "Compte courant");
+        await transactions.AddRangeAsync([Tx(0, account.Id, new DateOnly(2026, 8, 1), "Achat", -10m)]);
+        var transactionId = transactions.All[0].Id;
+        await service.UpdateNotesAsync(1, transactionId, "Une note");
+
+        var updated = await service.UpdateNotesAsync(1, transactionId, "   ");
+
+        Assert.Null(updated.Notes);
+    }
+
+    [Fact]
+    public async Task UpdateNotesAsync_TooLong_ThrowsInvalidTransaction()
+    {
+        var (accounts, transactions, _, service) = CreateSubject();
+        var account = accounts.Add(1, "BoursoBank", "Compte courant");
+        await transactions.AddRangeAsync([Tx(0, account.Id, new DateOnly(2026, 8, 1), "Achat", -10m)]);
+        var transactionId = transactions.All[0].Id;
+
+        await Assert.ThrowsAsync<InvalidTransactionException>(
+            () => service.UpdateNotesAsync(1, transactionId, new string('a', 501)));
+    }
+
+    [Fact]
+    public async Task UpdateNotesAsync_UnknownTransactionId_ThrowsTransactionNotFound()
+    {
+        var (_, _, _, service) = CreateSubject();
+
+        await Assert.ThrowsAsync<TransactionNotFoundException>(() => service.UpdateNotesAsync(1, 999, "Note"));
+    }
+
+    [Fact]
+    public async Task UpdateNotesAsync_AnotherUsersTransaction_ThrowsTransactionNotFound()
+    {
+        var (accounts, transactions, _, service) = CreateSubject();
+        var theirs = accounts.Add(2, "BoursoBank", "Compte courant");
+        await transactions.AddRangeAsync([Tx(0, theirs.Id, new DateOnly(2026, 8, 1), "Pas à moi", -10m)]);
+        var transactionId = transactions.All[0].Id;
+
+        await Assert.ThrowsAsync<TransactionNotFoundException>(() => service.UpdateNotesAsync(1, transactionId, "Note"));
     }
 }

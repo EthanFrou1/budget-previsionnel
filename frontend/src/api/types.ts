@@ -49,6 +49,29 @@ export interface ImportSummary {
   internalTransfersDetected: number
 }
 
+// One not-yet-persisted row: returned by /import/preview, and echoed back (some rows
+// omitted, categoryId possibly edited) to /import/commit.
+export interface ImportRow {
+  date: string
+  rawLabel: string
+  cleanedLabel: string | null
+  amount: number
+  categoryId: number | null
+  categoryName: string | null
+}
+
+export interface ImportCommitRowRequest {
+  date: string
+  rawLabel: string
+  cleanedLabel: string | null
+  amount: number
+  categoryId: number | null
+}
+
+export interface ImportCommitRequest {
+  rows: ImportCommitRowRequest[]
+}
+
 // Mirrors BudgetPrevisionnel.Api.Contracts.Categories (Api/Contracts/Categories/CategoryContracts.cs).
 
 export interface Category {
@@ -87,6 +110,7 @@ export interface Transaction {
   categoryId: number | null
   categoryName: string | null
   isInternalTransfer: boolean
+  notes: string | null
 }
 
 export interface TransactionPage {
@@ -231,4 +255,18 @@ export interface MonthlyForecast {
   categoryLines: ForecastCategoryLine[]
   loanPayments: number
   total: number
+}
+
+// Mirrors BudgetPrevisionnel.Api.Contracts.Calendar (Api/Contracts/Calendar/CalendarContracts.cs).
+// One dated occurrence (RecurringExpenseProjector/LoanProjector) rather than a summed total -
+// Budget lines aren't tied to a day, so they never appear here (see CalendarService's doc comment).
+
+export type CalendarEntryType = 'RecurringExpense' | 'Loan'
+
+export interface CalendarEntry {
+  date: string
+  label: string
+  amount: number
+  type: CalendarEntryType
+  isLastOccurrence: boolean
 }

@@ -13,6 +13,7 @@ public class TransactionConfiguration : IEntityTypeConfiguration<Transaction>
         builder.Property(t => t.RawLabel).IsRequired().HasMaxLength(500);
         builder.Property(t => t.CleanedLabel).HasMaxLength(500);
         builder.Property(t => t.Amount).HasPrecision(18, 2);
+        builder.Property(t => t.Notes).HasMaxLength(500);
 
         builder.HasOne(t => t.BankAccount)
             .WithMany(a => a.Transactions)

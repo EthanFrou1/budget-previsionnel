@@ -2,6 +2,7 @@ using BudgetPrevisionnel.Application.Auth;
 using BudgetPrevisionnel.Application.BankAccounts;
 using BudgetPrevisionnel.Application.BankImport;
 using BudgetPrevisionnel.Application.Budgets;
+using BudgetPrevisionnel.Application.Calendar;
 using BudgetPrevisionnel.Application.Categories;
 using BudgetPrevisionnel.Application.Dashboard;
 using BudgetPrevisionnel.Application.Forecasting;
@@ -57,6 +58,7 @@ public static class DependencyInjection
         services.AddScoped<IBudgetRepository, BudgetRepository>();
         services.AddScoped<BudgetService>();
         services.AddScoped<ForecastService>();
+        services.AddScoped<CalendarService>();
 
         services.AddScoped<IDashboardRepository, DashboardRepository>();
         services.AddScoped<DashboardService>();

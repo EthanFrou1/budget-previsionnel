@@ -17,6 +17,8 @@ internal sealed class FakeBankAccountRepository : IBankAccountRepository
 
     public int GetUserId(int bankAccountId) => _accounts.Single(a => a.Id == bankAccountId).UserId;
 
+    public string GetLabel(int bankAccountId) => _accounts.Single(a => a.Id == bankAccountId).Label;
+
     public Task<BankAccount?> GetByIdForUserAsync(int userId, int bankAccountId, CancellationToken cancellationToken = default) =>
         Task.FromResult(_accounts.SingleOrDefault(a => a.Id == bankAccountId && a.UserId == userId));
 

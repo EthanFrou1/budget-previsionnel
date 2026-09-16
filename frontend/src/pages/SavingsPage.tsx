@@ -2,7 +2,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/client'
 import type { BankAccount, SavingsGoal } from '../api/types'
-import { AppHeader } from '../components/AppHeader'
+import { AppLayout } from '../components/AppLayout'
+import { useConfirm } from '../components/confirmContext'
 import { useApiClient } from '../auth/useApiClient'
 import { formatCurrency, formatDateFr } from '../utils/format'
 
@@ -20,6 +21,7 @@ function progressPercent(goal: Pick<SavingsGoal, 'currentAmount' | 'targetAmount
 export function SavingsPage() {
   const apiClient = useApiClient()
   const queryClient = useQueryClient()
+  const [isCreating, setIsCreating] = useState(false)
 
   const goalsQuery = useQuery({
     queryKey: ['savings-goals'],
@@ -37,35 +39,50 @@ export function SavingsPage() {
   const accounts = accountsQuery.data ?? []
 
   return (
-    <div className="min-h-svh bg-gray-50 dark:bg-gray-900">
-      <AppHeader />
-
-      <main className="mx-auto max-w-3xl space-y-6 p-4">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Épargne</h1>
-
-        <CreateGoalForm accounts={accounts} onCreated={invalidateGoals} />
-
-        {goalsQuery.isPending && <p className="text-gray-600 dark:text-gray-300">Chargement…</p>}
-
-        {goalsQuery.isError && (
-          <p role="alert" className="rounded bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-            {errorMessage(goalsQuery.error)}
-          </p>
+    <AppLayout>
+      <div className="flex items-center justify-between">
+        <h1 className="font-display text-xl font-semibold text-heading">Épargne</h1>
+        {!isCreating && (
+          <button
+            onClick={() => setIsCreating(true)}
+            className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
+          >
+            + Ajouter un objectif
+          </button>
         )}
+      </div>
 
-        {goalsQuery.data && goalsQuery.data.length === 0 && (
-          <p className="text-gray-600 dark:text-gray-300">Aucun objectif d'épargne pour l'instant.</p>
-        )}
+      {isCreating && (
+        <CreateGoalForm
+          accounts={accounts}
+          onCreated={() => {
+            invalidateGoals()
+            setIsCreating(false)
+          }}
+          onCancel={() => setIsCreating(false)}
+        />
+      )}
 
-        <ul className="space-y-4">
-          {goalsQuery.data?.map((goal) => (
-            <li key={goal.id}>
-              <GoalCard goal={goal} accounts={accounts} onChanged={invalidateGoals} />
-            </li>
-          ))}
-        </ul>
-      </main>
-    </div>
+      {goalsQuery.isPending && <p className="text-body">Chargement…</p>}
+
+      {goalsQuery.isError && (
+        <p role="alert" className="rounded bg-negative/10 px-3 py-2 text-sm text-negative">
+          {errorMessage(goalsQuery.error)}
+        </p>
+      )}
+
+      {goalsQuery.data && goalsQuery.data.length === 0 && (
+        <p className="text-body">Aucun objectif d'épargne pour l'instant.</p>
+      )}
+
+      <ul className="space-y-4">
+        {goalsQuery.data?.map((goal) => (
+          <li key={goal.id}>
+            <GoalCard goal={goal} accounts={accounts} onChanged={invalidateGoals} />
+          </li>
+        ))}
+      </ul>
+    </AppLayout>
   )
 }
 
@@ -99,7 +116,7 @@ function GoalFields({
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <div>
-        <label htmlFor={`${idPrefix}-label`} className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label htmlFor={`${idPrefix}-label`} className="block text-sm font-medium text-body">
           Libellé
         </label>
         <input
@@ -109,12 +126,12 @@ function GoalFields({
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           placeholder="Fonds d'urgence"
-          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:border-sky-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+          className="mt-1 w-full rounded border border-border px-3 py-2 focus:border-accent focus:outline-none bg-field text-heading"
         />
       </div>
 
       <div>
-        <label htmlFor={`${idPrefix}-target`} className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label htmlFor={`${idPrefix}-target`} className="block text-sm font-medium text-body">
           Montant visé
         </label>
         <input
@@ -125,12 +142,12 @@ function GoalFields({
           required
           value={targetAmount}
           onChange={(e) => setTargetAmount(e.target.value)}
-          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:border-sky-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+          className="mt-1 w-full rounded border border-border px-3 py-2 focus:border-accent focus:outline-none bg-field text-heading"
         />
       </div>
 
       <div>
-        <label htmlFor={`${idPrefix}-current`} className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label htmlFor={`${idPrefix}-current`} className="block text-sm font-medium text-body">
           Montant actuel
         </label>
         <input
@@ -141,12 +158,12 @@ function GoalFields({
           required
           value={currentAmount}
           onChange={(e) => setCurrentAmount(e.target.value)}
-          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:border-sky-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+          className="mt-1 w-full rounded border border-border px-3 py-2 focus:border-accent focus:outline-none bg-field text-heading"
         />
       </div>
 
       <div>
-        <label htmlFor={`${idPrefix}-date`} className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label htmlFor={`${idPrefix}-date`} className="block text-sm font-medium text-body">
           Échéance (optionnelle)
         </label>
         <input
@@ -154,19 +171,19 @@ function GoalFields({
           type="date"
           value={targetDate}
           onChange={(e) => setTargetDate(e.target.value)}
-          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:border-sky-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+          className="mt-1 w-full rounded border border-border px-3 py-2 focus:border-accent focus:outline-none bg-field text-heading"
         />
       </div>
 
       <div className="sm:col-span-2 lg:col-span-4">
-        <label htmlFor={`${idPrefix}-account`} className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label htmlFor={`${idPrefix}-account`} className="block text-sm font-medium text-body">
           Compte lié (optionnel)
         </label>
         <select
           id={`${idPrefix}-account`}
           value={linkedAccountId}
           onChange={(e) => setLinkedAccountId(e.target.value)}
-          className="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:border-sky-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+          className="mt-1 w-full rounded border border-border px-3 py-2 focus:border-accent focus:outline-none bg-field text-heading"
         >
           <option value="">Aucun compte lié</option>
           {accounts.map((account) => (
@@ -180,7 +197,15 @@ function GoalFields({
   )
 }
 
-function CreateGoalForm({ accounts, onCreated }: { accounts: BankAccount[]; onCreated: () => void }) {
+function CreateGoalForm({
+  accounts,
+  onCreated,
+  onCancel,
+}: {
+  accounts: BankAccount[]
+  onCreated: () => void
+  onCancel: () => void
+}) {
   const apiClient = useApiClient()
   const [label, setLabel] = useState('')
   const [targetAmount, setTargetAmount] = useState('')
@@ -219,11 +244,11 @@ function CreateGoalForm({ accounts, onCreated }: { accounts: BankAccount[]; onCr
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 rounded-lg bg-white p-4 shadow dark:bg-gray-800">
-      <h2 className="font-medium text-gray-900 dark:text-white">Ajouter un objectif</h2>
+    <form onSubmit={handleSubmit} className="space-y-3 rounded-lg bg-surface p-4 shadow">
+      <h2 className="font-display font-medium text-heading">Ajouter un objectif</h2>
 
       {error && (
-        <p role="alert" className="rounded bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+        <p role="alert" className="rounded bg-negative/10 px-3 py-2 text-sm text-negative">
           {error}
         </p>
       )}
@@ -243,13 +268,22 @@ function CreateGoalForm({ accounts, onCreated }: { accounts: BankAccount[]; onCr
         accounts={accounts}
       />
 
-      <button
-        type="submit"
-        disabled={isSubmitting}
-        className="rounded bg-sky-600 px-4 py-2 font-medium text-white hover:bg-sky-700 disabled:opacity-50"
-      >
-        {isSubmitting ? 'Ajout…' : 'Ajouter'}
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="rounded bg-accent px-4 py-2 font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+        >
+          {isSubmitting ? 'Ajout…' : 'Ajouter'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded border border-border px-4 py-2 font-medium text-body hover:bg-overlay"
+        >
+          Annuler
+        </button>
+      </div>
     </form>
   )
 }
@@ -264,6 +298,7 @@ function GoalCard({
   onChanged: () => void
 }) {
   const apiClient = useApiClient()
+  const confirm = useConfirm()
   const [isEditing, setIsEditing] = useState(false)
   const [label, setLabel] = useState(goal.label)
   const [targetAmount, setTargetAmount] = useState(String(goal.targetAmount))
@@ -300,7 +335,9 @@ function GoalCard({
   }
 
   async function handleDelete() {
-    if (!confirm(`Supprimer l'objectif "${goal.label}" ?`)) {
+    if (
+      !(await confirm(`Supprimer l'objectif "${goal.label}" ?`, { confirmLabel: 'Supprimer', danger: true }))
+    ) {
       return
     }
     setError(null)
@@ -316,10 +353,10 @@ function GoalCard({
     return (
       <form
         onSubmit={handleSave}
-        className="space-y-3 rounded-lg border border-sky-200 bg-white p-4 shadow dark:border-sky-800 dark:bg-gray-800"
+        className="space-y-3 rounded-lg border border-accent/40 bg-surface p-4 shadow"
       >
         {error && (
-          <p role="alert" className="rounded bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+          <p role="alert" className="rounded bg-negative/10 px-3 py-2 text-sm text-negative">
             {error}
           </p>
         )}
@@ -341,14 +378,14 @@ function GoalCard({
           <button
             type="submit"
             disabled={isSaving}
-            className="rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+            className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
           >
             {isSaving ? 'Enregistrement…' : 'Enregistrer'}
           </button>
           <button
             type="button"
             onClick={() => setIsEditing(false)}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700"
+            className="rounded border border-border px-3 py-1.5 text-sm hover:bg-overlay"
           >
             Annuler
           </button>
@@ -360,17 +397,17 @@ function GoalCard({
   const percent = progressPercent(goal)
 
   return (
-    <div className="space-y-3 rounded-lg bg-white p-4 shadow dark:bg-gray-800">
+    <div className="space-y-3 rounded-lg bg-surface p-4 shadow">
       {error && (
-        <p role="alert" className="rounded bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+        <p role="alert" className="rounded bg-negative/10 px-3 py-2 text-sm text-negative">
           {error}
         </p>
       )}
 
       <div className="flex items-start justify-between">
         <div>
-          <p className="font-medium text-gray-900 dark:text-white">{goal.label}</p>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="font-medium text-heading">{goal.label}</p>
+          <p className="text-sm text-muted">
             {formatCurrency(goal.currentAmount)} / {formatCurrency(goal.targetAmount)}
             {goal.targetDate ? ` · échéance ${formatDateFr(goal.targetDate)}` : ''}
             {linkedAccount ? ` · ${linkedAccount.label}` : ''}
@@ -379,13 +416,13 @@ function GoalCard({
         <div className="flex gap-2">
           <button
             onClick={() => setIsEditing(true)}
-            className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700"
+            className="rounded border border-border px-3 py-1 text-sm hover:bg-overlay"
           >
             Modifier
           </button>
           <button
             onClick={handleDelete}
-            className="rounded border border-red-300 px-3 py-1 text-sm text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+            className="rounded border border-negative/40 px-3 py-1 text-sm text-negative hover:bg-negative/10"
           >
             Supprimer
           </button>
@@ -398,11 +435,11 @@ function GoalCard({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={`Progression de l'objectif ${goal.label}`}
-        className="h-2 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700"
+        className="h-2 w-full overflow-hidden rounded-full bg-border"
       >
-        <div className="h-full rounded-full bg-sky-600" style={{ width: `${percent}%` }} />
+        <div className="h-full rounded-full bg-accent" style={{ width: `${percent}%` }} />
       </div>
-      <p className="text-xs text-gray-400 dark:text-gray-500">{percent}% atteint</p>
+      <p className="text-xs text-muted">{percent}% atteint</p>
     </div>
   )
 }

@@ -94,11 +94,26 @@ describe('SavingsPage', () => {
     expect(await screen.findByText("Aucun objectif d'épargne pour l'instant.")).toBeInTheDocument()
   })
 
-  it('creates a goal and refreshes the list', async () => {
+  it('hides the create form behind a toggle button until the user asks for it', async () => {
+    renderPage({ goals: [] })
+
+    await screen.findByText("Aucun objectif d'épargne pour l'instant.")
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: '+ Ajouter un objectif' }))
+    expect(screen.getByLabelText('Libellé')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Annuler' }))
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
+  })
+
+  it('creates a goal, refreshes the list and collapses the form again', async () => {
     renderPage({ goals: [] })
     await screen.findByText("Aucun objectif d'épargne pour l'instant.")
 
     const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: '+ Ajouter un objectif' }))
     await user.type(screen.getByLabelText('Libellé'), 'Vacances')
     await user.type(screen.getByLabelText('Montant visé'), '2000')
 
@@ -109,11 +124,18 @@ describe('SavingsPage', () => {
         '/api/savings-goals',
         expect.objectContaining({
           method: 'POST',
-          body: { label: 'Vacances', targetAmount: 2000, currentAmount: 0, targetDate: null, linkedAccountId: null },
+          body: {
+            label: 'Vacances',
+            targetAmount: 2000,
+            currentAmount: 0,
+            targetDate: null,
+            linkedAccountId: null,
+          },
         }),
       ),
     )
     expect(await screen.findByText('Vacances')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
   })
 
   it('edits a goal in place', async () => {
@@ -123,8 +145,8 @@ describe('SavingsPage', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Modifier' }))
 
-    // Both the always-visible create form and this edit form have a "Montant actuel"
-    // field, so scope to the edit form (identified by its "Enregistrer" button).
+    // Scope to the edit form (identified by its "Enregistrer" button) in case a create
+    // form is also open elsewhere on the page.
     const editForm = screen.getByRole('button', { name: 'Enregistrer' }).closest('form')!
     const currentAmountInput = within(editForm).getByLabelText('Montant actuel')
     await user.clear(currentAmountInput)
@@ -143,13 +165,17 @@ describe('SavingsPage', () => {
   it('deletes a goal after confirmation', async () => {
     renderPage({ goals: [goal] })
     await screen.findByText("Fonds d'urgence")
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Supprimer' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Supprimer' }))
 
     await waitFor(() =>
-      expect(apiFetch).toHaveBeenCalledWith('/api/savings-goals/1', expect.objectContaining({ method: 'DELETE' })),
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/savings-goals/1',
+        expect.objectContaining({ method: 'DELETE' }),
+      ),
     )
     expect(await screen.findByText("Aucun objectif d'épargne pour l'instant.")).toBeInTheDocument()
   })

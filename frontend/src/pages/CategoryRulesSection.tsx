@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import { ApiError } from '../api/client'
 import type { Category, CategoryRule } from '../api/types'
+import { useConfirm } from '../components/confirmContext'
 import { useApiClient } from '../auth/useApiClient'
 
 function errorMessage(err: unknown): string {
@@ -16,6 +17,8 @@ function errorMessage(err: unknown): string {
 export function CategoryRulesSection({ categories }: { categories: Category[] }) {
   const apiClient = useApiClient()
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
+  const [isCreating, setIsCreating] = useState(false)
 
   const rulesQuery = useQuery({
     queryKey: ['category-rules'],
@@ -31,7 +34,12 @@ export function CategoryRulesSection({ categories }: { categories: Category[] })
   }
 
   async function handleDelete(ruleId: number) {
-    if (!confirm('Supprimer cette règle de catégorisation ?')) {
+    if (
+      !(await confirm('Supprimer cette règle de catégorisation ?', {
+        confirmLabel: 'Supprimer',
+        danger: true,
+      }))
+    ) {
       return
     }
     await apiClient(`/api/category-rules/${ruleId}`, { method: 'DELETE' })
@@ -39,33 +47,54 @@ export function CategoryRulesSection({ categories }: { categories: Category[] })
   }
 
   return (
-    <section className="space-y-3 rounded-lg bg-white p-4 shadow dark:bg-gray-800">
-      <h2 className="font-medium text-gray-900 dark:text-white">Règles de catégorisation</h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400">
-        Appliquées aux prochains imports quand la banque ne suggère pas de catégorie exacte.
-      </p>
+    <section className="space-y-3 rounded-lg bg-surface p-4 shadow">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-display font-medium text-heading">Règles de catégorisation</h2>
+          <p className="text-sm text-muted">
+            Appliquées aux prochains imports quand la banque ne suggère pas de catégorie exacte.
+          </p>
+        </div>
+        {!isCreating && (
+          <button
+            onClick={() => setIsCreating(true)}
+            className="shrink-0 rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover"
+          >
+            + Ajouter une règle
+          </button>
+        )}
+      </div>
 
-      <CreateRuleForm categories={categories} onCreated={invalidateRules} />
+      {isCreating && (
+        <CreateRuleForm
+          categories={categories}
+          onCreated={() => {
+            invalidateRules()
+            setIsCreating(false)
+          }}
+          onCancel={() => setIsCreating(false)}
+        />
+      )}
 
-      {rulesQuery.isPending && <p className="text-gray-600 dark:text-gray-300">Chargement…</p>}
+      {rulesQuery.isPending && <p className="text-body">Chargement…</p>}
 
       {rulesQuery.data && rulesQuery.data.length === 0 && (
-        <p className="text-sm text-gray-500 dark:text-gray-400">Aucune règle pour l'instant.</p>
+        <p className="text-sm text-muted">Aucune règle pour l'instant.</p>
       )}
 
       {rulesQuery.data && rulesQuery.data.length > 0 && (
-        <ul className="divide-y divide-gray-100 dark:divide-gray-700">
+        <ul className="divide-y divide-border">
           {[...rulesQuery.data]
             .sort((a, b) => a.priority - b.priority)
             .map((rule) => (
               <li key={rule.id} className="flex items-center justify-between gap-2 py-2 text-sm">
-                <span className="text-gray-700 dark:text-gray-300">
+                <span className="text-body">
                   <span className="font-mono">"{rule.matchPattern}"</span> → {categoryName(rule.categoryId)}{' '}
-                  <span className="text-gray-400 dark:text-gray-500">(priorité {rule.priority})</span>
+                  <span className="text-muted">(priorité {rule.priority})</span>
                 </span>
                 <button
                   onClick={() => handleDelete(rule.id)}
-                  className="rounded border border-red-300 px-2 py-1 text-xs text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+                  className="rounded border border-negative/40 px-2 py-1 text-xs text-negative hover:bg-negative/10"
                 >
                   Supprimer
                 </button>
@@ -77,7 +106,15 @@ export function CategoryRulesSection({ categories }: { categories: Category[] })
   )
 }
 
-function CreateRuleForm({ categories, onCreated }: { categories: Category[]; onCreated: () => void }) {
+function CreateRuleForm({
+  categories,
+  onCreated,
+  onCancel,
+}: {
+  categories: Category[]
+  onCreated: () => void
+  onCancel: () => void
+}) {
   const apiClient = useApiClient()
   const [matchPattern, setMatchPattern] = useState('')
   const [categoryId, setCategoryId] = useState(categories[0]?.id.toString() ?? '')
@@ -108,49 +145,74 @@ function CreateRuleForm({ categories, onCreated }: { categories: Category[]; onC
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-2 border-b border-gray-100 pb-3 dark:border-gray-700">
+    <form onSubmit={handleSubmit} className="space-y-2 border-b border-border pb-3">
       {error && (
-        <p role="alert" className="rounded bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+        <p role="alert" className="rounded bg-negative/10 px-3 py-2 text-sm text-negative">
           {error}
         </p>
       )}
       <div className="grid gap-2 sm:grid-cols-4">
-        <input
-          aria-label="Motif à rechercher dans le libellé"
-          type="text"
-          required
-          placeholder="Motif (ex : NETFLIX)"
-          value={matchPattern}
-          onChange={(e) => setMatchPattern(e.target.value)}
-          className="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:col-span-2"
-        />
-        <select
-          aria-label="Catégorie de la règle"
-          value={categoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
-          className="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-        >
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </select>
-        <input
-          aria-label="Priorité"
-          type="number"
-          value={priority}
-          onChange={(e) => setPriority(e.target.value)}
-          className="rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-        />
+        <div className="sm:col-span-2">
+          <label htmlFor="rule-pattern" className="block text-xs font-medium text-body">
+            Motif à rechercher
+          </label>
+          <input
+            id="rule-pattern"
+            type="text"
+            required
+            placeholder="Ex : NETFLIX"
+            value={matchPattern}
+            onChange={(e) => setMatchPattern(e.target.value)}
+            className="mt-1 w-full rounded border border-border px-3 py-2 text-sm bg-field text-heading"
+          />
+        </div>
+        <div>
+          <label htmlFor="rule-category" className="block text-xs font-medium text-body">
+            Catégorie
+          </label>
+          <select
+            id="rule-category"
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+            className="mt-1 w-full rounded border border-border px-3 py-2 text-sm bg-field text-heading"
+          >
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="rule-priority" className="block text-xs font-medium text-body">
+            Priorité
+          </label>
+          <input
+            id="rule-priority"
+            type="number"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+            className="mt-1 w-full rounded border border-border px-3 py-2 text-sm bg-field text-heading"
+          />
+          <p className="mt-1 text-xs text-muted">Le plus petit numéro est testé en premier.</p>
+        </div>
       </div>
-      <button
-        type="submit"
-        disabled={isSubmitting}
-        className="rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50"
-      >
-        {isSubmitting ? 'Ajout…' : 'Ajouter la règle'}
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+        >
+          {isSubmitting ? 'Ajout…' : 'Ajouter la règle'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded border border-border px-3 py-1.5 text-sm text-body hover:bg-overlay"
+        >
+          Annuler
+        </button>
+      </div>
     </form>
   )
 }

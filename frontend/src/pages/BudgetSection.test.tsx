@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiFetch } from '../api/client'
 import type { BudgetLine, Category } from '../api/types'
 import { AuthContextTestProvider } from '../auth/testUtils'
+import { ConfirmProvider } from '../components/ConfirmDialog'
 import { BudgetSection } from './BudgetSection'
 
 vi.mock('../api/client', async () => {
@@ -13,13 +14,36 @@ vi.mock('../api/client', async () => {
 })
 
 const categories: Category[] = [
-  { id: 10, name: 'Logement', icon: null, color: null, parentCategoryId: null, isSystemDefault: true, isOwnedByCurrentUser: false },
-  { id: 11, name: 'Loisirs', icon: null, color: null, parentCategoryId: null, isSystemDefault: true, isOwnedByCurrentUser: false },
+  {
+    id: 10,
+    name: 'Logement',
+    icon: null,
+    color: null,
+    parentCategoryId: null,
+    isSystemDefault: true,
+    isOwnedByCurrentUser: false,
+  },
+  {
+    id: 11,
+    name: 'Loisirs',
+    icon: null,
+    color: null,
+    parentCategoryId: null,
+    isSystemDefault: true,
+    isOwnedByCurrentUser: false,
+  },
 ]
 
 const month = '2026-03-01'
 
-const line: BudgetLine = { id: 1, month, categoryId: 10, categoryName: 'Logement', plannedAmount: 900, actualAmount: 950 }
+const line: BudgetLine = {
+  id: 1,
+  month,
+  categoryId: 10,
+  categoryName: 'Logement',
+  plannedAmount: 900,
+  actualAmount: 950,
+}
 
 function renderSection(overrides: { lines?: BudgetLine[] } = {}) {
   let lines = overrides.lines ?? []
@@ -63,7 +87,9 @@ function renderSection(overrides: { lines?: BudgetLine[] } = {}) {
   return render(
     <QueryClientProvider client={queryClient}>
       <AuthContextTestProvider isAuthenticated>
-        <BudgetSection month={month} categories={categories} />
+        <ConfirmProvider>
+          <BudgetSection month={month} categories={categories} />
+        </ConfirmProvider>
       </AuthContextTestProvider>
     </QueryClientProvider>,
   )
@@ -93,11 +119,28 @@ describe('BudgetSection', () => {
     expect(await screen.findByText('Aucune ligne de budget pour ce mois.')).toBeInTheDocument()
   })
 
+  it('hides the create form behind a toggle button until the user asks for it', async () => {
+    renderSection({ lines: [] })
+
+    await screen.findByText('Aucune ligne de budget pour ce mois.')
+    expect(screen.queryByLabelText('Catégorie')).not.toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: '+ Ajouter une ligne' }))
+    expect(screen.getByLabelText('Catégorie')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Annuler' }))
+    expect(screen.queryByLabelText('Catégorie')).not.toBeInTheDocument()
+  })
+
   it('only offers categories without an existing budget line for the month', async () => {
     renderSection({ lines: [line] })
     await screen.findByText('Logement')
 
-    const select = screen.getByLabelText('Catégorie du budget') as HTMLSelectElement
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: '+ Ajouter une ligne' }))
+
+    const select = screen.getByLabelText('Catégorie') as HTMLSelectElement
     const optionLabels = Array.from(select.options).map((o) => o.textContent)
     expect(optionLabels).toEqual(['Loisirs'])
   })
@@ -107,7 +150,8 @@ describe('BudgetSection', () => {
     await screen.findByText('Aucune ligne de budget pour ce mois.')
 
     const user = userEvent.setup()
-    await user.selectOptions(screen.getByLabelText('Catégorie du budget'), '11')
+    await user.click(screen.getByRole('button', { name: '+ Ajouter une ligne' }))
+    await user.selectOptions(screen.getByLabelText('Catégorie'), '11')
     await user.type(screen.getByLabelText('Montant planifié'), '120')
     await user.click(screen.getByRole('button', { name: 'Ajouter la ligne' }))
 
@@ -143,10 +187,11 @@ describe('BudgetSection', () => {
   it('deletes a budget line after confirmation', async () => {
     renderSection({ lines: [line] })
     await screen.findByText('Logement')
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Supprimer' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Supprimer' }))
 
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith('/api/budgets/1', expect.objectContaining({ method: 'DELETE' })),

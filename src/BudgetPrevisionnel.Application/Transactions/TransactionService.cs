@@ -10,10 +10,12 @@ public sealed class TransactionService(
 {
     private const int DefaultPageSize = 50;
     private const int MaxPageSize = 200;
+    private const int MaxNotesLength = 500;
 
     public async Task<TransactionPage> SearchAsync(
         int userId, int? bankAccountId, int? categoryId, DateOnly? fromDate, DateOnly? toDate,
         string? search, bool excludeInternalTransfers, int page, int pageSize,
+        string? sortBy = null, string? sortDirection = null,
         CancellationToken cancellationToken = default)
     {
         if (bankAccountId is not null)
@@ -37,10 +39,23 @@ public sealed class TransactionService(
             Search: string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
             ExcludeInternalTransfers: excludeInternalTransfers,
             Page: Math.Max(page, 1),
-            PageSize: Math.Clamp(pageSize <= 0 ? DefaultPageSize : pageSize, 1, MaxPageSize));
+            PageSize: Math.Clamp(pageSize <= 0 ? DefaultPageSize : pageSize, 1, MaxPageSize),
+            SortBy: ParseSortColumn(sortBy),
+            SortDescending: !string.Equals(sortDirection, "asc", StringComparison.OrdinalIgnoreCase));
 
         return await transactionRepository.SearchAsync(query, cancellationToken);
     }
+
+    // An unrecognized sortBy (missing query param, typo, stale client) falls back to the
+    // original default order (most recent first) rather than rejecting the request.
+    private static TransactionSortColumn ParseSortColumn(string? sortBy) => sortBy?.ToLowerInvariant() switch
+    {
+        "bankaccount" => TransactionSortColumn.BankAccount,
+        "label" => TransactionSortColumn.Label,
+        "amount" => TransactionSortColumn.Amount,
+        "category" => TransactionSortColumn.Category,
+        _ => TransactionSortColumn.Date,
+    };
 
     /// <summary>Manual (re-)categorization from the transactions screen - not part of the
     /// import pipeline (BankStatementImportService/CategoryRuleMatcher), which only sets
@@ -67,6 +82,26 @@ public sealed class TransactionService(
         // assigning what we already fetched.
         transaction.CategoryId = categoryId;
         transaction.Category = category;
+        await transactionRepository.SaveChangesAsync(cancellationToken);
+        return transaction;
+    }
+
+    /// <summary>Free-form personal note the user attaches from the transactions screen -
+    /// never read or written by import/categorization, purely for their own reference.
+    /// Blank input clears the note rather than storing an empty string.</summary>
+    public async Task<Transaction> UpdateNotesAsync(
+        int userId, int transactionId, string? notes, CancellationToken cancellationToken = default)
+    {
+        var transaction = await transactionRepository.GetByIdForUserAsync(userId, transactionId, cancellationToken)
+            ?? throw new TransactionNotFoundException(transactionId);
+
+        var trimmed = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+        if (trimmed is { Length: > MaxNotesLength })
+        {
+            throw new InvalidTransactionException($"Notes cannot exceed {MaxNotesLength} characters.");
+        }
+
+        transaction.Notes = trimmed;
         await transactionRepository.SaveChangesAsync(cancellationToken);
         return transaction;
     }

@@ -9,11 +9,12 @@ const PLOT_WIDTH = WIDTH - PADDING.left - PADDING.right
 const PLOT_HEIGHT = HEIGHT - PADDING.top - PADDING.bottom
 
 // Single hue (sequential job: "trend over time" - dataviz skill choosing-a-form.md) -
-// the validated palette's blue slot. Matches the diverging pair used in
-// MonthlyComparisonChart so "money in" always reads as the same color app-wide.
-const LINE_COLOR = 'stroke-[#2a78d6] dark:stroke-[#3987e5]'
-const FILL_COLOR = 'fill-[#2a78d6]/10 dark:fill-[#3987e5]/10'
-const DOT_COLOR = 'fill-[#2a78d6] dark:fill-[#3987e5]'
+// the app's accent, since a cumulative balance isn't inherently "positive" or
+// "negative" the way a single income/expense figure is (unlike the diverging
+// pair in MonthlyComparisonChart, which does map to those semantic colors).
+const LINE_COLOR = 'stroke-accent'
+const FILL_COLOR = 'fill-accent/10'
+const DOT_COLOR = 'fill-accent'
 
 function dayIndex(isoDate: string): number {
   const [y, m, d] = isoDate.split('-').map(Number)
@@ -35,7 +36,7 @@ export function BalanceEvolutionChart({ points }: { points: BalancePoint[] }) {
   const gradientId = useId()
 
   if (points.length === 0) {
-    return <p className="p-4 text-sm text-gray-500 dark:text-gray-400">Aucune transaction sur cette période.</p>
+    return <p className="p-4 text-sm text-muted">Aucune transaction sur cette période.</p>
   }
 
   const days = points.map((p) => dayIndex(p.date))
@@ -94,7 +95,7 @@ export function BalanceEvolutionChart({ points }: { points: BalancePoint[] }) {
       <div className="flex justify-end px-2 pt-2">
         <button
           onClick={() => setShowTable((v) => !v)}
-          className="text-xs font-medium text-sky-600 hover:underline dark:text-sky-400"
+          className="text-xs font-medium text-accent hover:underline"
         >
           {showTable ? 'Voir le graphique' : 'Voir le tableau'}
         </button>
@@ -103,14 +104,14 @@ export function BalanceEvolutionChart({ points }: { points: BalancePoint[] }) {
       {showTable ? (
         <div className="max-h-72 overflow-y-auto p-2">
           <table className="w-full text-left text-sm">
-            <thead className="text-xs uppercase text-gray-500 dark:text-gray-400">
+            <thead className="text-xs uppercase text-muted">
               <tr>
                 <th className="px-2 py-1">Date</th>
                 <th className="px-2 py-1 text-right">Variation</th>
                 <th className="px-2 py-1 text-right">Solde cumulé</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            <tbody className="divide-y divide-border">
               {points.map((p) => (
                 <tr key={p.date}>
                   <td className="px-2 py-1">{formatDateFr(p.date)}</td>
@@ -139,10 +140,16 @@ export function BalanceEvolutionChart({ points }: { points: BalancePoint[] }) {
                   x2={WIDTH - PADDING.right}
                   y1={y(tick)}
                   y2={y(tick)}
-                  className="stroke-gray-200 dark:stroke-gray-700"
+                  className="stroke-border"
                   strokeWidth={1}
                 />
-                <text x={PADDING.left - 8} y={y(tick)} textAnchor="end" dominantBaseline="middle" className="fill-gray-500 text-[10px] dark:fill-gray-400">
+                <text
+                  x={PADDING.left - 8}
+                  y={y(tick)}
+                  textAnchor="end"
+                  dominantBaseline="middle"
+                  className="fill-muted text-[10px]"
+                >
                   {formatCurrency(tick)}
                 </text>
               </g>
@@ -154,7 +161,7 @@ export function BalanceEvolutionChart({ points }: { points: BalancePoint[] }) {
                 x2={WIDTH - PADDING.right}
                 y1={zeroY}
                 y2={zeroY}
-                className="stroke-gray-400 dark:stroke-gray-500"
+                className="stroke-muted"
                 strokeWidth={1}
               />
             )}
@@ -165,7 +172,7 @@ export function BalanceEvolutionChart({ points }: { points: BalancePoint[] }) {
                 x={x(i)}
                 y={HEIGHT - 6}
                 textAnchor={i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle'}
-                className="fill-gray-500 text-[10px] dark:fill-gray-400"
+                className="fill-muted text-[10px]"
               >
                 {formatDateFr(points[i].date)}
               </text>
@@ -179,17 +186,30 @@ export function BalanceEvolutionChart({ points }: { points: BalancePoint[] }) {
 
             <g clipPath={`url(#${gradientId})`}>
               <path d={areaPath} className={FILL_COLOR} stroke="none" />
-              <path d={linePath} className={LINE_COLOR} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+              <path
+                d={linePath}
+                className={LINE_COLOR}
+                fill="none"
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
             </g>
 
             {/* End marker with a surface ring, per marks-and-anatomy - direct-labeled since
                 lines label their endpoint rather than every point. */}
-            <circle cx={x(points.length - 1)} cy={y(last.cumulativeBalance)} r={4} className={`${DOT_COLOR} stroke-white dark:stroke-gray-800`} strokeWidth={2} />
+            <circle
+              cx={x(points.length - 1)}
+              cy={y(last.cumulativeBalance)}
+              r={4}
+              className={`${DOT_COLOR} stroke-surface`}
+              strokeWidth={2}
+            />
             <text
               x={x(points.length - 1) - 6}
               y={y(last.cumulativeBalance) - 10}
               textAnchor="end"
-              className="fill-gray-900 text-xs font-medium dark:fill-white"
+              className="fill-heading text-xs font-medium"
             >
               {formatCurrency(last.cumulativeBalance)}
             </text>
@@ -200,12 +220,18 @@ export function BalanceEvolutionChart({ points }: { points: BalancePoint[] }) {
                 x2={x(hoverIndex)}
                 y1={PADDING.top}
                 y2={PADDING.top + PLOT_HEIGHT}
-                className="stroke-gray-400 dark:stroke-gray-500"
+                className="stroke-muted"
                 strokeWidth={1}
               />
             )}
             {hovered && (
-              <circle cx={x(hoverIndex!)} cy={y(hovered.cumulativeBalance)} r={4} className={`${DOT_COLOR} stroke-white dark:stroke-gray-800`} strokeWidth={2} />
+              <circle
+                cx={x(hoverIndex!)}
+                cy={y(hovered.cumulativeBalance)}
+                r={4}
+                className={`${DOT_COLOR} stroke-surface`}
+                strokeWidth={2}
+              />
             )}
 
             <rect
@@ -220,12 +246,10 @@ export function BalanceEvolutionChart({ points }: { points: BalancePoint[] }) {
           </svg>
 
           {hovered && (
-            <div className="pointer-events-none absolute top-2 left-2 rounded border border-gray-200 bg-white px-2 py-1 text-xs shadow dark:border-gray-600 dark:bg-gray-800">
-              <p className="text-gray-500 dark:text-gray-400">{formatDateFr(hovered.date)}</p>
-              <p className="font-medium text-gray-900 dark:text-white">{formatCurrency(hovered.cumulativeBalance)}</p>
-              <p className="text-gray-500 dark:text-gray-400">
-                Variation du jour : {formatCurrency(hovered.netChange)}
-              </p>
+            <div className="pointer-events-none absolute top-2 left-2 rounded border border-border bg-surface px-2 py-1 text-xs shadow">
+              <p className="text-muted">{formatDateFr(hovered.date)}</p>
+              <p className="font-medium text-heading">{formatCurrency(hovered.cumulativeBalance)}</p>
+              <p className="text-muted">Variation du jour : {formatCurrency(hovered.netChange)}</p>
             </div>
           )}
         </div>

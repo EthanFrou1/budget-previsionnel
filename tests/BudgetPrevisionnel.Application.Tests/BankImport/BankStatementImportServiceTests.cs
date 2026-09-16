@@ -9,7 +9,7 @@ namespace BudgetPrevisionnel.Application.Tests.BankImport;
 public class BankStatementImportServiceTests
 {
     [Fact]
-    public async Task ImportAsync_NewTransactions_ResolvesSystemCategoryAndPersists()
+    public async Task PreviewAsync_NewTransactions_ResolvesSystemCategoryNameAndDoesNotPersist()
     {
         var bankAccounts = new FakeBankAccountRepository();
         var account = bankAccounts.Add(userId: 1, bankName: "BoursoBank", label: "Compte courant");
@@ -25,16 +25,19 @@ public class BankStatementImportServiceTests
         var service = new BankStatementImportService(
             [new FakeBankStatementParser("BoursoBank", parsed)], bankAccounts, transactions, categories, rules);
 
-        var summary = await service.ImportAsync(userId: 1, bankAccountId: account.Id, Stream.Null);
+        var rows = await service.PreviewAsync(userId: 1, bankAccountId: account.Id, Stream.Null);
 
-        Assert.Equal(2, summary.NewTransactionsImported);
-        Assert.Equal(0, summary.DuplicatesSkipped);
-        Assert.Equal(2, transactions.All.Single(t => t.RawLabel == "PRLV SEPA MSF").CategoryId);
-        Assert.Null(transactions.All.Single(t => t.RawLabel == "CARTE UNKNOWN").CategoryId);
+        Assert.Equal(2, rows.Count);
+        var msfRow = rows.Single(r => r.RawLabel == "PRLV SEPA MSF");
+        Assert.Equal(2, msfRow.CategoryId);
+        Assert.Equal("Logement", msfRow.CategoryName);
+        var unknownRow = rows.Single(r => r.RawLabel == "CARTE UNKNOWN");
+        Assert.Null(unknownRow.CategoryId);
+        Assert.Empty(transactions.All); // nothing persisted yet
     }
 
     [Fact]
-    public async Task ImportAsync_NoExactCategoryMatch_FallsBackToUserCategoryRule()
+    public async Task PreviewAsync_NoExactCategoryMatch_FallsBackToUserCategoryRule()
     {
         // "Auto & Moto" (BoursoBank's Catégorie Parente) has no matching system category,
         // but the user has taught a rule that "TOTAL" in the label means "Transport".
@@ -51,13 +54,15 @@ public class BankStatementImportServiceTests
         var service = new BankStatementImportService(
             [new FakeBankStatementParser("BoursoBank", parsed)], bankAccounts, transactions, categories, rules);
 
-        await service.ImportAsync(1, account.Id, Stream.Null);
+        var rows = await service.PreviewAsync(1, account.Id, Stream.Null);
 
-        Assert.Equal(3, Assert.Single(transactions.All).CategoryId);
+        var row = Assert.Single(rows);
+        Assert.Equal(3, row.CategoryId);
+        Assert.Equal("Transport", row.CategoryName);
     }
 
     [Fact]
-    public async Task ImportAsync_SameFileImportedTwice_SecondImportSkipsDuplicates()
+    public async Task PreviewAsync_RowAlreadyImported_IsExcludedFromThePreview()
     {
         var bankAccounts = new FakeBankAccountRepository();
         var account = bankAccounts.Add(1, "BoursoBank", "Compte courant");
@@ -72,16 +77,15 @@ public class BankStatementImportServiceTests
         var service = new BankStatementImportService(
             [new FakeBankStatementParser("BoursoBank", parsed)], bankAccounts, transactions, categories, rules);
 
-        await service.ImportAsync(1, account.Id, Stream.Null);
-        var secondSummary = await service.ImportAsync(1, account.Id, Stream.Null);
+        var firstPreview = await service.PreviewAsync(1, account.Id, Stream.Null);
+        await service.CommitAsync(1, account.Id, firstPreview);
+        var secondPreview = await service.PreviewAsync(1, account.Id, Stream.Null);
 
-        Assert.Equal(0, secondSummary.NewTransactionsImported);
-        Assert.Equal(1, secondSummary.DuplicatesSkipped);
-        Assert.Single(transactions.All); // not duplicated in storage either
+        Assert.Empty(secondPreview);
     }
 
     [Fact]
-    public async Task ImportAsync_UnknownBank_ThrowsNoParserAvailable()
+    public async Task PreviewAsync_UnknownBank_ThrowsNoParserAvailable()
     {
         var bankAccounts = new FakeBankAccountRepository();
         var account = bankAccounts.Add(1, "UnknownBank", "Compte courant");
@@ -92,11 +96,11 @@ public class BankStatementImportServiceTests
             [new FakeBankStatementParser("BoursoBank", [])], bankAccounts, transactions, categories, rules);
 
         await Assert.ThrowsAsync<NoParserAvailableException>(
-            () => service.ImportAsync(1, account.Id, Stream.Null));
+            () => service.PreviewAsync(1, account.Id, Stream.Null));
     }
 
     [Fact]
-    public async Task ImportAsync_AccountBelongsToAnotherUser_ThrowsBankAccountNotFound()
+    public async Task PreviewAsync_AccountBelongsToAnotherUser_ThrowsBankAccountNotFound()
     {
         var bankAccounts = new FakeBankAccountRepository();
         var account = bankAccounts.Add(userId: 1, bankName: "BoursoBank", label: "Compte courant");
@@ -107,11 +111,111 @@ public class BankStatementImportServiceTests
             [new FakeBankStatementParser("BoursoBank", [])], bankAccounts, transactions, categories, rules);
 
         await Assert.ThrowsAsync<BankAccountNotFoundException>(
-            () => service.ImportAsync(userId: 999, account.Id, Stream.Null));
+            () => service.PreviewAsync(userId: 999, account.Id, Stream.Null));
     }
 
     [Fact]
-    public async Task ImportAsync_MatchingTransferInAnotherOwnAccount_FlagsBothAsInternalTransfer()
+    public async Task CommitAsync_AllRowsKept_PersistsThemAndReturnsTheirCount()
+    {
+        var bankAccounts = new FakeBankAccountRepository();
+        var account = bankAccounts.Add(1, "BoursoBank", "Compte courant");
+        var transactions = new FakeTransactionRepository(bankAccounts);
+        var categories = new FakeCategoryRepository();
+        var rules = new FakeCategoryRuleRepository();
+        var service = new BankStatementImportService(
+            [new FakeBankStatementParser("BoursoBank", [])], bankAccounts, transactions, categories, rules);
+
+        var rows = new[]
+        {
+            new ImportRow(new DateOnly(2026, 8, 5), "PRLV SEPA MSF", "Msf", -10m, CategoryId: 2, CategoryName: "Logement"),
+            new ImportRow(new DateOnly(2026, 8, 6), "CARTE UNKNOWN", "Unknown", -5m, CategoryId: null, CategoryName: null)
+        };
+
+        var summary = await service.CommitAsync(1, account.Id, rows);
+
+        Assert.Equal(2, summary.NewTransactionsImported);
+        Assert.Equal(0, summary.DuplicatesSkipped);
+        Assert.Equal(2, transactions.All.Single(t => t.RawLabel == "PRLV SEPA MSF").CategoryId);
+        Assert.Null(transactions.All.Single(t => t.RawLabel == "CARTE UNKNOWN").CategoryId);
+    }
+
+    [Fact]
+    public async Task CommitAsync_RowExcludedByTheUser_IsNeverPersisted()
+    {
+        var bankAccounts = new FakeBankAccountRepository();
+        var account = bankAccounts.Add(1, "BoursoBank", "Compte courant");
+        var transactions = new FakeTransactionRepository(bankAccounts);
+        var categories = new FakeCategoryRepository();
+        var rules = new FakeCategoryRuleRepository();
+        var service = new BankStatementImportService(
+            [new FakeBankStatementParser("BoursoBank", [])], bankAccounts, transactions, categories, rules);
+
+        // The client only ever sends the rows it wants kept - an excluded row is simply
+        // never in this list, no separate "excluded" flag needed.
+        var keptRow = new ImportRow(new DateOnly(2026, 8, 5), "PRLV SEPA MSF", "Msf", -10m, null, null);
+
+        await service.CommitAsync(1, account.Id, [keptRow]);
+
+        Assert.Single(transactions.All);
+    }
+
+    [Fact]
+    public async Task CommitAsync_UserOverridesTheSuggestedCategory_PersistsTheOverride()
+    {
+        var bankAccounts = new FakeBankAccountRepository();
+        var account = bankAccounts.Add(1, "BoursoBank", "Compte courant");
+        var transactions = new FakeTransactionRepository(bankAccounts);
+        var categories = new FakeCategoryRepository();
+        var rules = new FakeCategoryRuleRepository();
+        var service = new BankStatementImportService(
+            [new FakeBankStatementParser("BoursoBank", [])], bankAccounts, transactions, categories, rules);
+
+        // Preview suggested CategoryId 2, but the user picked a different one before commit.
+        var editedRow = new ImportRow(new DateOnly(2026, 8, 5), "PRLV SEPA MSF", "Msf", -10m, CategoryId: 7, CategoryName: null);
+
+        await service.CommitAsync(1, account.Id, [editedRow]);
+
+        Assert.Equal(7, Assert.Single(transactions.All).CategoryId);
+    }
+
+    [Fact]
+    public async Task CommitAsync_RowAlreadyImportedSincePreview_IsSkippedAgain()
+    {
+        var bankAccounts = new FakeBankAccountRepository();
+        var account = bankAccounts.Add(1, "BoursoBank", "Compte courant");
+        var transactions = new FakeTransactionRepository(bankAccounts);
+        var categories = new FakeCategoryRepository();
+        var rules = new FakeCategoryRuleRepository();
+        var service = new BankStatementImportService(
+            [new FakeBankStatementParser("BoursoBank", [])], bankAccounts, transactions, categories, rules);
+
+        var row = new ImportRow(new DateOnly(2026, 8, 5), "PRLV SEPA MSF", "Msf", -10m, null, null);
+        await service.CommitAsync(1, account.Id, [row]);
+
+        var secondSummary = await service.CommitAsync(1, account.Id, [row]);
+
+        Assert.Equal(0, secondSummary.NewTransactionsImported);
+        Assert.Equal(1, secondSummary.DuplicatesSkipped);
+        Assert.Single(transactions.All); // not duplicated in storage either
+    }
+
+    [Fact]
+    public async Task CommitAsync_AccountBelongsToAnotherUser_ThrowsBankAccountNotFound()
+    {
+        var bankAccounts = new FakeBankAccountRepository();
+        var account = bankAccounts.Add(userId: 1, bankName: "BoursoBank", label: "Compte courant");
+        var transactions = new FakeTransactionRepository(bankAccounts);
+        var categories = new FakeCategoryRepository();
+        var rules = new FakeCategoryRuleRepository();
+        var service = new BankStatementImportService(
+            [new FakeBankStatementParser("BoursoBank", [])], bankAccounts, transactions, categories, rules);
+
+        await Assert.ThrowsAsync<BankAccountNotFoundException>(
+            () => service.CommitAsync(userId: 999, account.Id, []));
+    }
+
+    [Fact]
+    public async Task CommitAsync_MatchingTransferInAnotherOwnAccount_FlagsBothAsInternalTransfer()
     {
         var bankAccounts = new FakeBankAccountRepository();
         var checking = bankAccounts.Add(1, "BoursoBank", "Compte courant");
@@ -119,23 +223,21 @@ public class BankStatementImportServiceTests
         var transactions = new FakeTransactionRepository(bankAccounts);
         var categories = new FakeCategoryRepository();
         var rules = new FakeCategoryRuleRepository();
+        var service = new BankStatementImportService(
+            [new FakeBankStatementParser("BoursoBank", [])], bankAccounts, transactions, categories, rules);
 
-        var outgoing = new ParsedBankTransaction[] { new(new DateOnly(2026, 8, 10), "VIR VERS LIVRET", null, -200m, null) };
-        var serviceForChecking = new BankStatementImportService(
-            [new FakeBankStatementParser("BoursoBank", outgoing)], bankAccounts, transactions, categories, rules);
-        await serviceForChecking.ImportAsync(1, checking.Id, Stream.Null);
+        var outgoing = new ImportRow(new DateOnly(2026, 8, 10), "VIR VERS LIVRET", null, -200m, null, null);
+        await service.CommitAsync(1, checking.Id, [outgoing]);
 
-        var incoming = new ParsedBankTransaction[] { new(new DateOnly(2026, 8, 11), "VIR DU COURANT", null, 200m, null) };
-        var serviceForSavings = new BankStatementImportService(
-            [new FakeBankStatementParser("BoursoBank", incoming)], bankAccounts, transactions, categories, rules);
-        var summary = await serviceForSavings.ImportAsync(1, savings.Id, Stream.Null);
+        var incoming = new ImportRow(new DateOnly(2026, 8, 11), "VIR DU COURANT", null, 200m, null, null);
+        var summary = await service.CommitAsync(1, savings.Id, [incoming]);
 
         Assert.Equal(1, summary.InternalTransfersDetected);
         Assert.All(transactions.All, t => Assert.True(t.IsInternalTransfer));
     }
 
     [Fact]
-    public async Task ImportAsync_MatchingAmountInAnotherUsersAccount_IsNotFlagged()
+    public async Task CommitAsync_MatchingAmountInAnotherUsersAccount_IsNotFlagged()
     {
         var bankAccounts = new FakeBankAccountRepository();
         var mine = bankAccounts.Add(userId: 1, bankName: "BoursoBank", label: "Compte courant");
@@ -143,16 +245,14 @@ public class BankStatementImportServiceTests
         var transactions = new FakeTransactionRepository(bankAccounts);
         var categories = new FakeCategoryRepository();
         var rules = new FakeCategoryRuleRepository();
+        var service = new BankStatementImportService(
+            [new FakeBankStatementParser("BoursoBank", [])], bankAccounts, transactions, categories, rules);
 
-        var theirDeposit = new ParsedBankTransaction[] { new(new DateOnly(2026, 8, 10), "VIR", null, 200m, null) };
-        var serviceForThem = new BankStatementImportService(
-            [new FakeBankStatementParser("BoursoBank", theirDeposit)], bankAccounts, transactions, categories, rules);
-        await serviceForThem.ImportAsync(2, someoneElses.Id, Stream.Null);
+        var theirDeposit = new ImportRow(new DateOnly(2026, 8, 10), "VIR", null, 200m, null, null);
+        await service.CommitAsync(2, someoneElses.Id, [theirDeposit]);
 
-        var myWithdrawal = new ParsedBankTransaction[] { new(new DateOnly(2026, 8, 10), "VIR", null, -200m, null) };
-        var serviceForMe = new BankStatementImportService(
-            [new FakeBankStatementParser("BoursoBank", myWithdrawal)], bankAccounts, transactions, categories, rules);
-        var summary = await serviceForMe.ImportAsync(1, mine.Id, Stream.Null);
+        var myWithdrawal = new ImportRow(new DateOnly(2026, 8, 10), "VIR", null, -200m, null, null);
+        var summary = await service.CommitAsync(1, mine.Id, [myWithdrawal]);
 
         Assert.Equal(0, summary.InternalTransfersDetected);
     }

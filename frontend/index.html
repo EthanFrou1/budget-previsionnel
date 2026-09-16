@@ -2,12 +2,36 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Resolves the theme before the stylesheet/bundle load, so the page never flashes
+      // the wrong palette. Mirrors src/theme/useTheme.ts's own resolution order (stored
+      // choice, else OS preference) - kept in sync by hand since it must run standalone,
+      // before any module script.
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('theme')
+          var theme =
+            stored === 'light' || stored === 'dark'
+              ? stored
+              : window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark'
+          document.documentElement.dataset.theme = theme
+        } catch (e) {}
+      })()
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+    />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <!-- iOS ignores the web manifest's icons entirely for "Add to Home Screen" -
          it needs its own dedicated link, a full-bleed non-transparent PNG. -->
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0EA5E9" />
+    <meta name="theme-color" content="#C6A15B" />
     <title>Budget Prévisionnel</title>
   </head>
   <body>

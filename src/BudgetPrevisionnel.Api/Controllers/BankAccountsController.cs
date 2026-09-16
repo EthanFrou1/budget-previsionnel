@@ -45,8 +45,12 @@ public class BankAccountsController(
         return NoContent();
     }
 
-    [HttpPost("{id:int}/import")]
-    public async Task<ActionResult<ImportSummaryResponse>> Import(int id, IFormFile file, CancellationToken cancellationToken)
+    /// <summary>Parses and auto-categorizes the statement but persists nothing - the
+    /// frontend shows this list for review (exclude rows, adjust categories) before
+    /// calling Commit with whatever's left.</summary>
+    [HttpPost("{id:int}/import/preview")]
+    public async Task<ActionResult<IEnumerable<ImportRowResponse>>> ImportPreview(
+        int id, IFormFile file, CancellationToken cancellationToken)
     {
         if (file.Length == 0)
         {
@@ -54,7 +58,16 @@ public class BankAccountsController(
         }
 
         await using var stream = file.OpenReadStream();
-        var summary = await importService.ImportAsync(currentUser.UserId, id, stream, cancellationToken);
+        var rows = await importService.PreviewAsync(currentUser.UserId, id, stream, cancellationToken);
+        return Ok(rows.Select(ImportRowResponse.FromRow));
+    }
+
+    [HttpPost("{id:int}/import/commit")]
+    public async Task<ActionResult<ImportSummaryResponse>> ImportCommit(
+        int id, ImportCommitRequest request, CancellationToken cancellationToken)
+    {
+        var rows = request.Rows.Select(r => r.ToImportRow()).ToList();
+        var summary = await importService.CommitAsync(currentUser.UserId, id, rows, cancellationToken);
         return Ok(ImportSummaryResponse.FromResult(summary));
     }
 }

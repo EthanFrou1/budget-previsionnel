@@ -33,24 +33,18 @@ export function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-gray-50 px-4 dark:bg-gray-900">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm space-y-4 rounded-lg bg-white p-6 shadow dark:bg-gray-800"
-      >
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Créer un compte</h1>
+    <div className="flex min-h-svh items-center justify-center bg-bg px-4">
+      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 rounded-lg bg-surface p-6 shadow">
+        <h1 className="font-display text-xl font-semibold text-heading">Créer un compte</h1>
 
         {error && (
-          <p
-            role="alert"
-            className="rounded bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
-          >
+          <p role="alert" className="rounded bg-negative/10 px-3 py-2 text-sm text-negative">
             {error}
           </p>
         )}
 
         <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label htmlFor="email" className="block text-sm font-medium text-body">
             Email
           </label>
           <input
@@ -60,12 +54,12 @@ export function RegisterPage() {
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:border-sky-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            className="mt-1 w-full rounded border border-border px-3 py-2 focus:border-accent focus:outline-none bg-field text-heading"
           />
         </div>
 
         <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label htmlFor="password" className="block text-sm font-medium text-body">
             Mot de passe
           </label>
           <input
@@ -76,22 +70,22 @@ export function RegisterPage() {
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:border-sky-500 focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            className="mt-1 w-full rounded border border-border px-3 py-2 focus:border-accent focus:outline-none bg-field text-heading"
           />
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">8 caractères minimum.</p>
+          <p className="mt-1 text-xs text-muted">8 caractères minimum.</p>
         </div>
 
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full rounded bg-sky-600 px-4 py-2 font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+          className="w-full rounded bg-accent px-4 py-2 font-medium text-white hover:bg-accent-hover disabled:opacity-50"
         >
           {isSubmitting ? 'Création…' : 'Créer le compte'}
         </button>
 
-        <p className="text-center text-sm text-gray-600 dark:text-gray-400">
+        <p className="text-center text-sm text-body">
           Déjà un compte ?{' '}
-          <Link to="/login" className="text-sky-600 hover:underline dark:text-sky-400">
+          <Link to="/login" className="text-accent hover:underline">
             Se connecter
           </Link>
         </p>

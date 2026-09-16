@@ -12,16 +12,22 @@ namespace BudgetPrevisionnel.Application.BankImport;
 /// </summary>
 public static class TransactionDeduplicator
 {
-    public static IReadOnlyList<ParsedBankTransaction> RemoveAlreadyImported(
-        IReadOnlyList<ParsedBankTransaction> parsedTransactions,
-        IReadOnlyDictionary<TransactionFingerprint, int> existingCounts)
+    /// <summary>Generic over T so the same counting logic runs both at preview time
+    /// (against freshly-parsed ParsedBankTransaction rows) and again at commit time
+    /// (against the ImportRow rows the client sends back) - the two must agree on what
+    /// counts as "already imported" or a row could slip through one check and not the
+    /// other.</summary>
+    public static IReadOnlyList<T> RemoveAlreadyImported<T>(
+        IReadOnlyList<T> candidates,
+        IReadOnlyDictionary<TransactionFingerprint, int> existingCounts,
+        Func<T, TransactionFingerprint> fingerprintSelector)
     {
         var remainingAllowance = new Dictionary<TransactionFingerprint, int>(existingCounts);
-        var result = new List<ParsedBankTransaction>();
+        var result = new List<T>();
 
-        foreach (var transaction in parsedTransactions)
+        foreach (var candidate in candidates)
         {
-            var fingerprint = new TransactionFingerprint(transaction.Date, transaction.RawLabel, transaction.Amount);
+            var fingerprint = fingerprintSelector(candidate);
             remainingAllowance.TryGetValue(fingerprint, out var alreadyImported);
 
             if (alreadyImported > 0)
@@ -30,7 +36,7 @@ public static class TransactionDeduplicator
                 continue;
             }
 
-            result.Add(transaction);
+            result.Add(candidate);
         }
 
         return result;

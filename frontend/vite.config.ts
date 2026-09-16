@@ -27,8 +27,8 @@ export default defineConfig({
         short_name: 'Budget',
         description: 'Suivi de budget et prévisionnel financier personnel/familial',
         lang: 'fr',
-        theme_color: '#0EA5E9',
-        background_color: '#ffffff',
+        theme_color: '#C6A15B',
+        background_color: '#191714',
         display: 'standalone',
         start_url: '/',
         icons: [

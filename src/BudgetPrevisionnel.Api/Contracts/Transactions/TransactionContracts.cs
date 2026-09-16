@@ -13,7 +13,8 @@ public sealed record TransactionResponse(
     decimal Amount,
     int? CategoryId,
     string? CategoryName,
-    bool IsInternalTransfer)
+    bool IsInternalTransfer,
+    string? Notes)
 {
     public static TransactionResponse FromEntity(Transaction transaction) => new(
         transaction.Id,
@@ -25,7 +26,8 @@ public sealed record TransactionResponse(
         transaction.Amount,
         transaction.CategoryId,
         transaction.Category?.Name,
-        transaction.IsInternalTransfer);
+        transaction.IsInternalTransfer,
+        transaction.Notes);
 }
 
 public sealed record TransactionPageResponse(
@@ -36,3 +38,5 @@ public sealed record TransactionPageResponse(
 }
 
 public sealed record UpdateTransactionCategoryRequest(int? CategoryId);
+
+public sealed record UpdateTransactionNotesRequest(string? Notes);

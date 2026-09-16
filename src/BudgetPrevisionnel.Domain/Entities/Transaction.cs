@@ -20,4 +20,8 @@ public class Transaction
     // True for transfers between the same user's own accounts, so consolidated
     // views can exclude them and avoid double-counting income/expense.
     public bool IsInternalTransfer { get; set; }
+
+    // Free-form personal note the user attaches from the transactions screen - never
+    // read or written by import/categorization, purely for their own reference.
+    public string? Notes { get; set; }
 }

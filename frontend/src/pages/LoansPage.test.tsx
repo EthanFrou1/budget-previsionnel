@@ -88,11 +88,26 @@ describe('LoansPage', () => {
     expect(await screen.findByText("Aucun crédit pour l'instant.")).toBeInTheDocument()
   })
 
-  it('creates a loan and refreshes the list', async () => {
+  it('hides the create form behind a toggle button until the user asks for it', async () => {
+    renderPage({ loans: [] })
+
+    await screen.findByText("Aucun crédit pour l'instant.")
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: '+ Ajouter un crédit' }))
+    expect(screen.getByLabelText('Libellé')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Annuler' }))
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
+  })
+
+  it('creates a loan, refreshes the list and collapses the form again', async () => {
     renderPage({ loans: [] })
     await screen.findByText("Aucun crédit pour l'instant.")
 
     const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: '+ Ajouter un crédit' }))
     await user.type(screen.getByLabelText('Libellé'), 'Prêt travaux')
     await user.type(screen.getByLabelText('Montant emprunté'), '5000')
     await user.type(screen.getByLabelText('Capital restant dû'), '5000')
@@ -118,15 +133,17 @@ describe('LoansPage', () => {
       ),
     )
     expect(await screen.findByText('Prêt travaux')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
   })
 
   it('deletes a loan after confirmation', async () => {
     renderPage({ loans: [loan] })
     await screen.findByText('Prêt auto')
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
 
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Supprimer' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Supprimer' }))
 
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith('/api/loans/1', expect.objectContaining({ method: 'DELETE' })),

@@ -27,8 +27,8 @@ racine du repo et ne sont pas remises en cause ici sauf blocage technique réel.
 | 11 | Écran comptes & import CSV | ✅ Fait |
 | 12 | Écran transactions | ✅ Fait |
 | 13 | Dashboard (graphiques) | ✅ Fait |
-| 14 | Écrans épargne / crédits / prévisionnel | À faire |
-| 15 | Finalisation PWA (manifest + service worker installable) | À faire |
+| 14 | Écrans épargne / crédits / prévisionnel | ✅ Fait |
+| 15 | Finalisation PWA (manifest + service worker installable) | ✅ Fait |
 | 16 | Déploiement (VPS/Railway, CI/CD) | À faire |
 
 ## Détail des lots backend
@@ -722,6 +722,434 @@ qu'aucun test unitaire avec fakes n'aurait pu révéler :
   réelle (aucun outil d'automatisation disponible) — **à faire par l'utilisateur** : audit
   Lighthouse PWA dans Chrome DevTools, test réel "Ajouter à l'écran d'accueil" sur iOS/Android,
   et un coup d'œil à `npm run dev` en largeur mobile (~375-400px) sur les six écrans.
+
+### Refonte de la direction artistique (fait)
+- **Demande d'Ethan** : sortir de la palette Tailwind par défaut (gray/sky) pour une DA "à nous",
+  sombre et classe, sans idée précise de départ — "je te laisse tester pour voir".
+- **Exploration sur un canvas de maquettes** (skill `design`) : trois pistes comparées côte à
+  côte sur un mini-dashboard fidèle à la vraie mise en page (sidebar, KPI, graphique, carte à
+  barre de progression) — "Bureau feutré" (noir chaud, serif Spectral, accent laiton),
+  "Financier confiant" (noir-bleu froid, sans-serif géométrique Space Grotesk, accent indigo),
+  "Nocturne chaleureux" (noir prune, serif Petrona, accent terracotta). Ethan a choisi le fond/
+  accent de la première et la police de la deuxième — combinaison non prévue à l'avance, exactement
+  le genre de mix que l'exploration à plusieurs artboards permet.
+- **Décision structurante validée avec Ethan avant de coder** : l'app passe en **sombre
+  uniquement**, sans mode clair à maintenir en parallèle (au lieu de garder `dark:` partout comme
+  avant). Ça change l'ampleur du travail : remplacer une paire (classe claire + `dark:classe`) par
+  un seul token, plutôt qu'ajouter une troisième variante.
+- **Tokens sémantiques dans `src/index.css`** (`@theme`, Tailwind v4 CSS-first) plutôt que des
+  couleurs Tailwind brutes dans les composants : `bg`/`surface`/`field`/`border` (fonds et
+  bordures, trois niveaux de clarté), `heading`/`body`/`muted` (texte), `accent`/`accent-hover`
+  (laiton `#C6A15B`, cohérent avec la charte "Bureau feutré"), `positive`/`negative` (vert/rouge,
+  convention métier des montants déjà en place, juste reconduite), `info` (bleu, réservé au badge
+  "Récurrent" du prévisionnel — sans lui, il aurait fini de la même couleur que l'accent laiton et
+  serait devenu indiscernable du badge "Budget"). `font-sans` (IBM Plex Sans, corps de texte) et
+  `font-display` (Space Grotesk, titres/KPI/montants) chargées en Google Fonts.
+- **Bascule mécanique en deux temps plutôt qu'à la main sur ~200 occurrences** : un script
+  Python jetable a fait l'inventaire exact de chaque classe couleur utilisée (`grep` sur toutes
+  les classNames), construit un dictionnaire classe-Tailwind-existante → nouveau-token (ex.
+  `text-gray-900` → `text-heading`, `dark:text-white` supprimé), puis appliqué le remplacement
+  token par token (découpage sur les espaces, jamais de regex approximative) sur tous les
+  fichiers `.tsx` hors tests. Deux classes ambiguës (`dark:bg-gray-700` et `dark:text-white`,
+  qui désignaient selon le contexte soit un champ de formulaire soit un titre) ont été résolues
+  par un remplacement littéral de la paire exacte *avant* la passe générique. Les couleurs dans
+  des ternaires JS (`className={cond ? '...' : '...'}`, template literals) n'étaient pas capturées
+  par ce script scanning `className="..."` — 7 cas trouvés et corrigés à la main (boutons actifs/
+  inactifs, montants positifs/négatifs, badge de source du prévisionnel). Trois graphiques
+  (`BalanceEvolutionChart`, `CategoryBreakdownChart`, `MonthlyComparisonChart`) avaient leurs
+  couleurs en hex arbitraire (`bg-[#2a78d6]`) plutôt qu'en classes Tailwind — remplacées par les
+  nouveaux tokens sémantiques (`bg-accent`, `fill-positive`, etc.), utilisables directement sur
+  n'importe quel utilitaire de couleur (`fill-*`, `stroke-*`, `border-*`...) dès qu'ils sont
+  déclarés dans `@theme`.
+- **`MonthlyComparisonChart` passe du bleu/rouge au vert/rouge pour la paire divergente
+  revenus/dépenses** : cohérent avec le reste de l'app (KPI, montants de transactions) qui utilise
+  déjà cette convention ; `BalanceEvolutionChart` et `CategoryBreakdownChart` restent en teinte
+  unique sur l'accent laiton (une tendance/un classement n'est pas intrinsèquement positif ou
+  négatif, contrairement à une comparaison revenus vs dépenses).
+- **Icônes PWA régénérées** (même script Pillow qu'au Lot 15, juste la couleur de fond/glyphe qui
+  change) : elles étaient encore bleues, donc plus cohérentes avec le nouvel accent laiton — sinon
+  l'icône d'installation aurait juré avec le reste de l'app.
+- Validé : `tsc -b`, `oxlint`, `npm run build` propres ; build inspecté pour confirmer que
+  Tailwind génère bien les nouvelles classes (`bg-accent`, `text-heading`, `bg-info/15` avec son
+  fallback `color-mix`, etc.) plutôt que de les ignorer silencieusement comme des classes inconnues.
+  64 tests Vitest/RTL toujours verts sans modification (ils testent du texte/des rôles, jamais des
+  classes CSS). Recherche exhaustive de résidus (`grep` sur tous les anciens tokens gray/sky/red/
+  green/amber et sur `dark:`) : zéro occurrence restante hors tests.
+- **Non fait** : comme toujours, aucune vérification visuelle réelle dans un navigateur (aucun
+  outil d'automatisation disponible) — **à faire par l'utilisateur** en rafraîchissant
+  `npm run dev`.
+
+### Retouches UX après relecture visuelle par Ethan (fait)
+Trois retours après le premier coup d'œil réel dans le navigateur (la seule vérification
+visuelle possible ici, faite par Ethan lui-même) :
+- **Champ d'import CSV pas assez visible** : `<input type="file">` sans style se fondait dans le
+  fond sombre. Stylé via le pseudo-élément `file:` de Tailwind (fond accent, texte blanc) plutôt
+  qu'en reconstruisant un composant de sélection de fichier custom.
+- **Formulaires de création cachés derrière un bouton "+ Ajouter..."** plutôt qu'affichés en
+  permanence au-dessus de la liste : `/accounts`, `/savings`, `/loans`, et les trois sections
+  secondaires (règles de catégorisation, budget du mois, dépenses récurrentes). Chaque écran
+  gagne un état `isCreating` ; le formulaire se referme aussi automatiquement après une création
+  réussie. `RecurringExpensesSection` avait déjà un `onCancel` optionnel sur son formulaire
+  (réutilisé pour l'édition en ligne) — il suffisait de le rendre obligatoire côté création plutôt
+  que d'écrire un second formulaire.
+- **Largeur de page uniformisée** : le composant `AppLayout` n'accepte plus de `maxWidth` par
+  page (chaque écran avait sa propre valeur - `max-w-3xl`/`4xl`/`5xl` - sans que ce soit
+  intentionnel) ; une seule largeur (`max-w-5xl`) pour tous les écrans protégés.
+- **Bug de test découvert en cachant les formulaires** : `CategoryRulesSection.test.tsx`
+  vérifiait `getByText('Alimentation')` en pensant tester le nom de catégorie affiché dans la
+  liste des règles — en réalité, cette assertion ne passait que par accident, en matchant
+  l'`<option>Alimentation</option>` du formulaire de création (toujours monté avant ce lot). Une
+  fois le formulaire caché par défaut, l'assertion échouait pour de bon. `getByText` avec une
+  chaîne exacte ne peut pas matcher le texte réellement affiché dans la liste ("→ Alimentation"
+  scindé sur plusieurs nœuds texte) — corrigé en scopant la recherche à la ligne (`<li>`) et en
+  utilisant une regex, comme c'était déjà fait ailleurs pour `RecurringExpensesSection`. Un rappel
+  qu'un test qui passe ne prouve pas qu'il teste la bonne chose.
+- 6 tests Vitest/RTL supplémentaires (un par écran/section pour le nouveau bouton "+"), 70 au
+  total. `tsc -b`, `oxlint` et `npm run build` propres.
+- **Bug réel trouvé par Ethan en testant un vrai import CSV** : un double-clic sur "Importer"
+  déclenchait deux requêtes d'import quasi simultanées ; la première réussissait (message vert),
+  la seconde échouait ensuite (message rouge) — les deux s'affichaient en même temps puisque
+  `error`/`summary` sont deux états indépendants, chacun mis à jour par sa propre requête. Le
+  bouton était bien `disabled={isImporting}`, mais cet attribut ne se pose qu'au prochain rendu
+  React : deux clics assez rapprochés peuvent tous les deux déclencher `handleSubmit` avant que le
+  premier rendu désactivant le bouton n'ait eu lieu. Corrigé avec un verrou synchrone
+  (`useRef<boolean>`, testé et remis à `false` avant tout `await`) en plus de l'état `isImporting`
+  existant — l'état React pilote l'affichage (bouton grisé, "Import…"), la ref empêche réellement
+  la double soumission indépendamment du moment où React re-rend. Testé avec deux `user.click()`
+  non attendus l'un après l'autre (`Promise.all`) pour reproduire la course sans dépendre du
+  timing réel. 71 tests au total.
+
+### Note personnelle sur les transactions + filtres rapides (fait)
+- **Nouveau champ `Transaction.Notes`** (`string?`, 500 caractères max) : texte libre pour l'usage
+  personnel d'Ethan (ex. "remboursé par Paul"), jamais lu ni écrit par l'import ou la
+  catégorisation. Migration `AddTransactionNotes` (colonne nullable, aucune donnée existante
+  affectée). Nouvel endpoint `PUT /api/transactions/{id}/notes`, symétrique à l'endpoint de
+  catégorisation déjà en place (`TransactionService.UpdateNotesAsync`, même convention :
+  `NotFoundException` sur une transaction inexistante ou d'un autre utilisateur, validation de
+  longueur dupliquée côté FluentValidation pour un 400 rapide en plus du contrôle service). Une
+  chaîne blanche efface la note (stockée `null`, jamais une chaîne vide).
+- **Frontend** : colonne "Note" dans le tableau de `/transactions`, champ texte qui enregistre au
+  blur (pas à chaque frappe) et seulement si la valeur a réellement changé — évite un PUT inutile
+  à chaque clic dans le champ. État local par ligne (`NotesCell`) resynchronisé depuis la prop via
+  un `useEffect` quand la transaction sous-jacente change (après une mutation ou un refetch).
+- **Boutons rapides "Ce mois-ci" / "3 derniers mois"** ajoutés aux filtres de `/transactions`,
+  même calcul de plage que `DashboardPage` (dupliqué plutôt qu'extrait - toujours seulement deux
+  usages, sous le seuil de trois qui a justifié l'extraction de `format.ts`).
+- Validé en conditions réelles contre la vraie base locale d'Ethan (utilisateur et compte de test
+  séparés, un import CSV synthétique) : note enregistrée avec trim, note effacée par une chaîne
+  blanche, 400 sur une note de 501 caractères, 404 sur une transaction inexistante — utilisateur
+  et compte de test supprimés ensuite (pas d'endpoint de suppression de compte utilisateur, donc
+  ligne supprimée directement en base). 163 tests `dotnet test` (5 nouveaux pour
+  `UpdateNotesAsync`), 73 tests Vitest/RTL (2 nouveaux). `tsc -b`, `oxlint` et `npm run build`
+  propres des deux côtés.
+- **Non fait** : comme toujours, aucune vérification visuelle réelle (aucun outil
+  d'automatisation disponible) — **à faire par l'utilisateur**.
+
+### Vue calendrier des échéances (abonnements et crédits) (fait)
+Demande d'Ethan : un affichage de calendrier mois/année pour voir les dates de ses
+abonnements (mensuels/annuels) et de ses crédits, avec leur date de fin quand il y en a une.
+
+- **Refactor plutôt que doublon** : `RecurringExpenseProjector` calculait déjà un total mensuel
+  (`GetMonthlyContribution`) sans jamais matérialiser les dates individuelles. Plutôt que d'écrire
+  un second calcul de dates pour le calendrier (avec le risque que les deux se désaccordent un
+  jour), la logique a été retournée dans l'autre sens : une nouvelle méthode
+  `GetOccurrenceDates(expense, month)` renvoie chaque occurrence concrète
+  (`RecurringExpenseOccurrence(Date, IsLastOccurrence)`), et `GetMonthlyContribution` est
+  maintenant définie comme `Amount * GetOccurrenceDates(...).Count`. Les 21 tests existants
+  (`RecurringExpenseProjectorTests` + `ForecastServiceTests`) passent sans modification après le
+  refactor, ce qui prouve qu'il ne change aucun comportement observable. Le cas hebdomadaire est
+  le plus délicat : une approximation "4,33 semaines/mois" se trompe d'un paiement dans les mois
+  à 5 occurrences du jour de la semaine — `GetOccurrenceDates` compte les vraies occurrences du
+  jour de semaine de `StartDate`, bornées à `[StartDate, EndDate]`.
+- **`LoanProjector`** (nouveau) : `Loan` n'a pas de `StartDate` dans le modèle de domaine, contrairement
+  à `RecurringExpense` — seul `EndDate.Day` peut ancrer le jour du mois, ce qui correspond au
+  fonctionnement réel de la plupart des crédits (un jour de prélèvement fixe chaque mois, et
+  `EndDate` qui est littéralement la date du dernier paiement). Pas de borne basse non plus, comme
+  le fait déjà `ForecastService` (`EndDate >= month`) : un crédit est considéré actif jusqu'à
+  `EndDate`, faute de `StartDate` pour le borner autrement.
+- **`CalendarService`** (nouveau, `Application/Calendar/`) : combine `RecurringExpenseProjector` et
+  `LoanProjector` en une liste d'occurrences datées et triées (`GetMonthlyCalendarAsync`,
+  `GetAnnualCalendarAsync` = 12 appels mensuels). Exclut délibérément les lignes de `Budget` : un
+  budget est un montant prévu par catégorie/mois, jamais rattaché à un jour précis, donc il n'a
+  rien à apporter à un calendrier d'événements datés (documenté dans le commentaire XML de la
+  classe).
+- **Nouveaux endpoints** `GET /api/calendar/monthly?month=...` et `GET /api/calendar/annual?year=...`
+  (`CalendarController`), protégés par `[Authorize]` comme le reste de l'API, filtrés par
+  utilisateur courant via `ICurrentUser`.
+- **Frontend** : troisième mode "Calendrier" dans `/forecast` (à côté de Mensuel/Annuel), avec un
+  sous-bascule Mois/Année. La vue mensuelle est une vraie grille de calendrier (7 colonnes,
+  semaine commençant le lundi, navigation ‹/›) ; la vue annuelle est une liste groupée par mois
+  (grille de 12 cartes) plutôt qu'une grille de mini-calendriers, pour rester lisible. Chaque
+  échéance affiche son libellé, son montant au survol, et un badge "(dernière)" quand
+  `isLastOccurrence` est vrai ; abonnements et crédits sont distingués par couleur (mêmes tokens
+  `bg-info`/`bg-accent` que le badge de source du prévisionnel).
+- Validé : 8 nouveaux tests `RecurringExpenseProjectorTests` (18 au total dans ce fichier), 9
+  nouveaux `CalendarServiceTests`, 5 nouveaux tests `ForecastPage.test.tsx` (9 au total) — 179
+  tests `dotnet test` et 77 tests Vitest/RTL au global, tous verts. `tsc -b`, `oxlint`,
+  `npm run build` propres des deux côtés. Testé en conditions réelles contre la vraie base locale
+  d'Ethan (utilisateur de test séparé, un abonnement mensuel avec date de fin et un crédit) :
+  dates d'occurrence et drapeau `isLastOccurrence` vérifiés sur plusieurs mois (dont les deux mois
+  de fin respectifs) et sur la vue annuelle — utilisateur et données de test supprimés ensuite.
+- **Non fait** : comme toujours, aucune vérification visuelle réelle de la grille (aucun outil
+  d'automatisation disponible) — **à faire par l'utilisateur** en rafraîchissant `npm run dev`.
+
+### Mode clair/sombre (fait)
+Retour en arrière assumé sur la décision "sombre uniquement" du Lot DA : demande explicite
+d'Ethan d'ajouter un mode clair.
+
+- **Palette claire dérivée de la palette sombre** plutôt qu'indépendante : mêmes teintes
+  (hue oklch 60/70/75/155/25/250) que la DA existante, luminosité inversée. L'accent laiton
+  (`#C6A15B`) est en revanche recalculé pour le mode clair (`oklch(0.5 0.1 75)`, plus soutenu) :
+  utilisé tel quel comme texte (`text-accent` sur les badges), le ton clair d'origine tombe à
+  ~2,4:1 de contraste sur fond blanc (calcul manuel de luminance relative WCAG), bien en dessous
+  du seuil de lisibilité — inutile pour un simple bouton plein (texte blanc dessus, peu importe
+  le fond de page) mais rédhibitoire pour du texte directement sur fond clair. Même traitement
+  pour `positive`/`negative`/`info`, plus soutenus en clair pour rester lisibles sur un fond
+  presque blanc.
+- **Un seul jeu de tokens, deux valeurs** : les variables `--color-*` du Lot DA (déjà toutes
+  dans `@theme`) sont redéfinies une seconde fois dans `src/index.css`, sous
+  `@media (prefers-color-scheme: light) { :root:not([data-theme='dark']) { ... } }` (préférence
+  système, sauf override explicite) et sous `:root[data-theme='light'] { ... }` (choix explicite,
+  toujours prioritaire). Aucune classe `dark:`/`light:` à ajouter dans les composants : les
+  utilitaires Tailwind existants (`bg-surface`, `text-heading`, etc.) référencent déjà
+  `var(--color-*)`, donc ils suivent automatiquement la palette active.
+- **Nouveau token `--color-overlay`** : les nombreux `hover:bg-white/5` (survol des boutons/liens
+  bordés) étaient un blanc translucide, invisible en mode clair (blanc sur presque-blanc). Un
+  token dédié (blanc 5% en sombre, noir 5% en clair) remplace toutes les occurrences
+  (`hover:bg-overlay`) - même mécanisme de redéfinition par thème que les autres tokens.
+- **Bascule** : `src/theme/useTheme.ts` (résout la préférence stockée en `localStorage`, sinon
+  `prefers-color-scheme`, applique `<html data-theme>`) + bouton dans `AppSidebar` à côté de
+  "Déconnexion". Un petit script inline synchrone dans `index.html` (avant le chargement du
+  bundle) applique le même choix immédiatement, pour éviter un flash de la mauvaise palette au
+  chargement — dupliqué à la main par rapport à `useTheme.ts` puisqu'il doit tourner seul, avant
+  tout script de module.
+- Validé : 3 nouveaux tests (`AppSidebar.test.tsx` : thème par défaut sombre en l'absence de
+  préférence stockée, bascule + persistance `localStorage`, redémarrage depuis une préférence
+  déjà stockée) — 80 tests Vitest/RTL au total. `tsc -b`, `oxlint`, `npm run build` propres ;
+  build inspecté pour confirmer que `hover:bg-overlay`, `bg-accent/15` (via `color-mix`) et les
+  deux blocs de redéfinition de palette sont bien émis. Confirmé visuellement par Ethan
+  (captures d'écran des vues Calendrier et Transactions en mode clair).
+- **Non fait** : pas de lien entre le `theme-color` de la PWA (`index.html`/manifest, resté sur
+  l'accent laiton) et le thème actif — détail mineur, revisiter si besoin.
+
+### Raccourci "Marquer comme récurrente" sur les transactions (fait)
+Demande d'Ethan : pouvoir repérer/marquer une dépense récurrente (abonnement, etc.)
+directement depuis la page Transactions plutôt que de ressaisir sa fréquence sur
+`/forecast`. Deux options possibles - un simple raccourci de création, ou un vrai lien
+persistant `Transaction → RecurringExpense` en base avec badge affiché sur les
+transactions déjà liées - **raccourci de création choisi** par Ethan : plus simple,
+zéro changement de modèle de données, pas de moteur de correspondance à construire pour
+détecter les transactions futures similaires (aurait dupliqué la logique des règles de
+catégorisation pour un gain incertain).
+
+- **Aucun changement backend** : réutilise tel quel `POST /api/recurring-expenses`
+  (existant depuis le Lot 6). Le bouton "+ Récurrente" sur une ligne de `/transactions`
+  ouvre un sélecteur de fréquence (mêmes libellés que `RecurringExpensesSection`) et crée
+  une `RecurringExpense` pré-remplie avec le libellé, le montant (`Math.abs`, la
+  convention de magnitude positive du domaine), la catégorie et la date de la transaction
+  (`RecurringMarkCell`/`RecurringMarkDialog` dans `TransactionsPage.tsx`).
+- **N'apparaît que sur une vraie dépense** (montant négatif, hors virement interne) :
+  `RecurringExpense` n'a pas d'équivalent "revenu récurrent" dans le modèle de domaine.
+- **Pas de lien conservé après coup** (choix assumé, voir plus haut) : après création, la
+  transaction affiche juste "Ajoutée ✓" pour éviter un doublon accidentel dans la même
+  session — rien ne l'indique après un rechargement de page, et la dépense créée s'édite
+  ensuite sur `/forecast` comme n'importe quelle autre.
+- **Bug réel trouvé par Ethan sur la première version** : le sélecteur de fréquence
+  s'ouvrait en ligne dans la cellule du tableau, ce qui écrasait la largeur des colonnes
+  voisines (Catégorie, Note) à chaque clic. Remplacé par une modale (`RecurringMarkDialog`,
+  premier composant modal de l'app) — `fixed inset-0` la sort du flux normal, donc le
+  tableau ne bouge plus jamais autour d'elle. Fermeture sur Échap, sur clic du fond
+  (comparaison `e.target === e.currentTarget` pour ignorer les clics dans le panneau), ou
+  sur "Annuler".
+- **Deuxième retour d'Ethan sur la même modale** : `bg-surface` n'est que légèrement plus
+  clair que `bg-bg` par design (cartes discrètes sur le fond, voir la DA) - un fond assombri
+  à 40% suffisait à peine à distinguer la modale de la page derrière en mode sombre.
+  Assombrissement du fond porté à 70% et bordure (`border-border`) + ombre plus marquée
+  (`shadow-xl`) ajoutées au panneau, pour que la limite soit visible par le contour plutôt
+  que de compter uniquement sur l'écart de luminosité entre les deux fonds.
+- Validé : 6 nouveaux tests `TransactionsPage.test.tsx` (bouton absent sur revenu/virement
+  interne, corps de la requête exact à la création, fermeture par "Annuler"/Échap/clic sur
+  le fond sans appel API, erreur affichée en cas d'échec) — 86 tests Vitest/RTL au total.
+  `tsc -b`, `oxlint`,
+  `npm run build` propres. Pas de validation backend en conditions réelles nécessaire :
+  aucun changement côté API, l'endpoint réutilisé est déjà couvert par les tests
+  d'intégration existants et par la validation réelle du Lot 6.
+- **Retouches supplémentaires demandées par Ethan** : le bouton n'affiche plus que "+" (le
+  libellé "Récurrente" faisait doublon avec l'en-tête de colonne déjà nommé "RÉCURRENTE" -
+  un `aria-label` explicite garde le bouton compréhensible pour un lecteur d'écran). Filtres
+  de `/transactions` réorganisés : "Du"/"Au" étaient toujours visibles même quand un
+  préréglage ("Ce mois-ci"/"3 derniers mois") suffisait, ce qui encombrait la section pour
+  rien - ils ne s'affichent plus que derrière un choix "Personnalisé". Deux itérations sur
+  la forme de ce contrôle : d'abord trois boutons ("Ce mois-ci"/"3 derniers mois"/
+  "Personnalisé", surlignés en `bg-accent` quand actifs), puis converti en `<select>`
+  ("Toutes les périodes"/"Ce mois-ci"/"3 derniers mois"/"Personnalisé") à la demande
+  d'Ethan pour rester cohérent avec les filtres Compte/Catégorie voisins, qui sont déjà des
+  `<select>` - "Toutes les périodes" redonne aussi un moyen explicite d'effacer la période
+  (elle n'en avait pas avant ce lot, au-delà de recharger la page). 3 tests supplémentaires
+  (champs cachés par défaut, apparition + filtrage au choix de "Personnalisé", remise à
+  zéro via "Toutes les périodes") — 91 tests Vitest/RTL au total.
+
+### Revue avant import (fait)
+Demande d'Ethan : pouvoir voir la liste des lignes détectées par un import CSV, en
+exclure certaines, et ajuster/détecter leur catégorie - le tout avant que quoi que ce
+soit ne soit enregistré. Deux architectures possibles : revue après import (l'import se
+fait tout de suite, la revue permet de supprimer/recatégoriser ensuite) ou aperçu avant
+import (rien n'est persisté avant confirmation) — **aperçu avant import choisi** par
+Ethan, plus proche de "revenir en arrière avant que ce soit fait" et évitant d'avoir à
+construire un endpoint de suppression de transaction (qui n'existait pas) juste pour
+défaire un import annulé.
+
+- **`BankStatementImportService` scindé en deux** : `PreviewAsync` (parse + déduplique +
+  auto-catégorise, comme l'ancien `ImportAsync` un-shot, mais s'arrête là - rien n'est
+  persisté) et `CommitAsync` (reçoit exactement les lignes que le client veut garder,
+  éventuellement avec une catégorie modifiée, et les enregistre). La détection de
+  catégorie ne change pas : correspondance exacte sur la catégorie suggérée par la banque
+  d'abord, puis repli sur les `CategoryRule` de l'utilisateur (Lot 4) - elle tourne
+  simplement à l'aperçu plutôt qu'à l'enregistrement.
+- **`ImportRow`** (nouveau type partagé) : une ligne pas encore persistée, dans les deux
+  sens de l'aller-retour aperçu/commit. `CategoryName` n'est renseigné qu'à l'aperçu (pour
+  l'affichage) et ignoré par `CommitAsync`, qui ne persiste que `CategoryId` - le client
+  renvoie exactement les lignes qu'il veut garder, une ligne exclue n'est simplement
+  jamais dans la liste envoyée au commit (pas de champ "exclu" séparé).
+- **Déduplication revérifiée aux deux étapes** : `TransactionDeduplicator` généralisé
+  (`RemoveAlreadyImported<T>` avec un sélecteur d'empreinte) pour tourner à la fois sur
+  les `ParsedBankTransaction` fraîchement parsées (aperçu) et sur les `ImportRow` renvoyées
+  par le client (commit) - au cas où quelque chose aurait changé entre les deux appels
+  (un autre import, une saisie manuelle).
+- **Nouveaux endpoints** `POST /api/bank-accounts/{id}/import/preview` (remplace l'ancien
+  `POST .../import`, supprimé) et `POST /api/bank-accounts/{id}/import/commit`.
+- **Frontend** : le bouton "Importer" devient "Aperçu" - il ouvre une modale
+  (`ImportPreviewDialog`, même technique `fixed inset-0` que `RecurringMarkDialog`) listant
+  chaque ligne détectée avec une case à cocher (incluse par défaut), son montant, et un
+  `<select>` de catégorie pré-rempli avec la suggestion mais éditable. "Confirmer l'import"
+  n'envoie que les lignes encore cochées.
+- Validé : 12 tests `BankStatementImportServiceTests` (réécrits pour Preview/Commit,
+  contre 5 avant), tests `TransactionDeduplicatorTests` adaptés au sélecteur générique,
+  2 tests d'intégration `BankAccountImportFlowTests` (aperçu ne persiste rien, ligne
+  exclue jamais importée) — 186 tests `dotnet test` au total. 4 tests `AccountsPage.test.tsx`
+  réécrits/ajoutés (aperçu, double-clic ignoré, commit avec ligne exclue + catégorie
+  modifiée, annulation) — 90 tests Vitest/RTL au total. `tsc -b`, `oxlint`, `npm run build`
+  propres des deux côtés. Testé en conditions réelles contre la vraie base locale d'Ethan
+  (compte de test, CSV synthétique à 2 lignes) : aperçu sans persistance vérifié,
+  exclusion d'une ligne au commit vérifiée (jamais en base), re-aperçu du même fichier
+  confirmant que la ligne déjà importée disparaît alors que la ligne exclue reste
+  proposée, commit avec catégorie modifiée manuellement vérifié — compte et utilisateur
+  de test supprimés ensuite.
+
+### Labels visibles sur les formulaires compacts (fait)
+Repéré par Ethan sur le champ "Priorité" de la section Règles de catégorisation : un
+`<input type="number">` sans `placeholder` ni label visible (seulement un `aria-label`,
+invisible à l'écran), qui affichait juste "100" sans aucune indication de ce que ce
+nombre représentait. Généralisé : "comme sur d'autres formulaires" - un `aria-label` seul
+ne suffit pas dès qu'un champ a une valeur (un placeholder disparaît une fois rempli, un
+aria-label n'est jamais affiché du tout), donc plusieurs formulaires compacts en grille
+avaient le même problème.
+
+- **`CategoryRulesSection` (`CreateRuleForm`)** : les trois champs (Motif, Catégorie,
+  Priorité) ont maintenant un `<label>` visible au-dessus, comme les formulaires plus
+  spacieux (`LoginPage`, `CreateAccountForm`...). Ajout d'une phrase d'aide sous le champ
+  Priorité ("Le plus petit numéro est testé en premier") - la sémantique
+  petit-nombre-gagne (voir `CategoryRuleMatcher`, `OrderBy(r => r.Priority)`) n'était
+  expliquée nulle part, probablement la vraie source de confusion au-delà du simple
+  manque de label.
+- **`BudgetSection` (`CreateBudgetLineForm`)** : Catégorie et Montant planifié idem.
+  L'édition inline du montant par ligne (`BudgetLineRow`) reste en `aria-label` seul - son
+  contexte est déjà visible (catégorie dans la cellule voisine, en-tête de colonne
+  "Planifié"), pas le même problème qu'un formulaire autonome.
+- **`RecurringExpensesSection` (`RecurringExpenseForm`)** : les six champs (Libellé,
+  Montant, Catégorie, Fréquence, dates de début/fin) labellisés. Ce formulaire sert à la
+  fois de création et d'édition en ligne par dépense - plusieurs lignes peuvent être en
+  édition simultanément, donc les `id` sont scopés par dépense
+  (`recurring-expense-{id|new}-{champ}`) pour que deux formulaires ouverts en même temps
+  n'aient jamais le même `id` (deux `<label htmlFor>` identiques casseraient le clic sur
+  le libellé pour l'un des deux).
+- **`AccountsPage` (formulaire d'édition d'un compte, `AccountCard`)** : Banque, Libellé,
+  IBAN labellisés - même souci de scoping par compte (`account-{id}-{champ}`), et ce
+  formulaire n'avait jusqu'ici aucun test (angle mort découvert en le modifiant) : un
+  nouveau test couvre l'édition complète.
+- Validé : tests existants adaptés au texte des nouveaux labels (raccourcis - "Catégorie
+  de la règle" → "Catégorie", etc. - le texte affiché doit rester court dans une grille
+  serrée), 1 nouveau test pour l'édition de compte — 92 tests Vitest/RTL au total. `tsc
+  -b`, `oxlint`, `npm run build` propres.
+
+### Vraies modales de confirmation de suppression (fait)
+Demande d'Ethan (capture d'écran de la boîte `confirm()` native du navigateur, hors DA,
+non stylable, non testable avec Testing Library) : remplacer les 6 confirmations de
+suppression de l'app (comptes, budgets, règles de catégorisation, crédits, dépenses
+récurrentes, objectifs d'épargne) par de vraies modales.
+
+- **`useConfirm()`** (`components/confirmContext.ts` + `components/ConfirmDialog.tsx`,
+  même séparation fichier-contexte/fichier-composant que `auth/authContext.ts` -
+  `oxlint` signale qu'un fichier exportant à la fois un composant et un hook perd le Fast
+  Refresh) : remplace `window.confirm(message)` par `await confirm(message, options)`,
+  une Promise résolue par le clic sur le bouton de la modale plutôt que par un retour
+  synchrone. Rendu par un seul `ConfirmProvider`, monté une fois dans `AppLayout` (pas à
+  la racine de `App.tsx` : `LoginPage`/`RegisterPage` n'ont pas d'action destructive et
+  n'ont donc pas besoin du provider) - chaque écran protégé en hérite sans rien à faire.
+- **Options** : `confirmLabel`/`cancelLabel` (le bouton dit "Supprimer", pas un
+  "Confirmer" générique) et `danger` (fond rouge `bg-negative` plutôt que l'accent laiton -
+  première utilisation de `bg-negative` en remplissage plein avec texte blanc dans l'app,
+  jusqu'ici réservé aux textes/bordures/fonds translucides). Fermeture sur Échap ou clic
+  sur le fond, même mécanique `fixed inset-0` que les modales précédentes
+  (`RecurringMarkDialog`, `ImportPreviewDialog`).
+- **6 appels convertis** : `AccountsPage` (compte), `BudgetSection` (ligne de budget),
+  `CategoryRulesSection` (règle), `LoansPage` (crédit), `RecurringExpensesSection`
+  (dépense récurrente), `SavingsPage` (objectif) - simple ajout d'un `await` et d'options,
+  la structure `if (!(await confirm(...))) return` reste quasiment identique à l'ancien
+  `if (!confirm(...)) return`.
+- Validé : 5 nouveaux tests dédiés (`ConfirmDialog.test.tsx` : résolution true/false par
+  clic, Échap, clic sur le fond, erreur si utilisé hors `ConfirmProvider`), et les 8 tests
+  de suppression existants adaptés (`vi.stubGlobal('confirm', ...)` remplacé par un clic
+  réel sur le bouton de la modale ouverte) — 97 tests Vitest/RTL au total. Trois sections
+  (`BudgetSection`, `CategoryRulesSection`, `RecurringExpensesSection`) sont testées de
+  façon isolée, hors `AppLayout` - `ConfirmProvider` ajouté directement dans leurs
+  `renderSection` de test. `tsc -b`, `oxlint`, `npm run build` propres.
+
+### Tri des colonnes du tableau des transactions (fait)
+Demande d'Ethan ("dans le tableau des transactions on puisse trier les colonnes, en
+appuyant sur une colonne ou un bouton à côté du titre") : discutée lors d'une session
+précédente mais jamais réellement codée (aucune trace dans `TransactionsPage.tsx` ni dans
+le repository/contrôleur) - reprise et implémentée entièrement dans cette session.
+
+- **Tri côté backend, pas seulement côté client** : `/transactions` pagine déjà à 50
+  lignes par page côté serveur, donc trier uniquement la page affichée aurait été trompeur
+  (l'utilisateur voit un tri qui ne porte que sur 50 lignes sur potentiellement des
+  centaines). `TransactionQuery` gagne `SortBy` (`TransactionSortColumn` : `Date`,
+  `BankAccount`, `Label`, `Amount`, `Category`) et `SortDescending`, tous deux avec des
+  valeurs par défaut (`Date`/`true`) qui reproduisent l'ordre fixe précédent -
+  rétrocompatible avec tout appelant qui ne passe pas ces paramètres.
+- **`TransactionRepository.SearchAsync`** : le tri fixe `OrderByDescending(Date)` devient
+  un `switch` sur `SortBy` construisant l'`IOrderedQueryable` adapté, puis un
+  `ThenBy(Id)`/`ThenByDescending(Id)` (même sens que le tri primaire) pour garder une
+  pagination stable quand plusieurs lignes partagent la même valeur triée. Tri par
+  libellé sur `CleanedLabel ?? RawLabel` (ce que l'écran affiche réellement), par compte
+  sur `BankAccount.Label`, par catégorie sur `Category.Name` (navigation nullable - les
+  transactions non catégorisées se retrouvent en tête ou en fin selon la direction, LEFT
+  JOIN généré par EF).
+- **`TransactionService.SearchAsync`** : deux nouveaux paramètres optionnels `sortBy`/
+  `sortDirection` (chaînes, comme `search`) parsés en `TransactionSortColumn` - une valeur
+  inconnue ou absente retombe silencieusement sur `Date` plutôt que de rejeter la requête
+  (même philosophie que `page`/`pageSize` déjà clampés dans ce service).
+  `TransactionsController.Search` expose `sortBy`/`sortDirection` en query string.
+- **Frontend** : état `Sort { column, direction }` dans `TransactionsPage`, valeur par
+  défaut `{ date, desc }` qui reflète le défaut backend (l'en-tête "Date" affiche donc la
+  flèche active dès le chargement initial, pas un tableau qui a l'air non trié).
+  `SortableHeader` (bouton dans le `<th>`, flèche ▲/▼ ou ⇕ neutre, `aria-sort` sur le
+  `<th>`) pour les 5 colonnes qui ont un sens à trier (Date, Compte, Libellé, Montant,
+  Catégorie) - "Note" (texte libre) et "Récurrente" (bouton d'action) restent de simples
+  `<th>`, trier dessus n'aurait pas de sens. Premier clic sur une colonne = ascendant,
+  deuxième clic = descendant (convention tableur), et changer de colonne ou de direction
+  remet `page` à 1 comme un changement de filtre.
+- Validé : 100 tests Vitest/RTL frontend (4 nouveaux : défaut Date desc, clic Montant asc
+  puis desc, retour à la page 1 au changement de tri) et 166 tests xUnit backend (4
+  nouveaux sur `TransactionServiceTests` : tri Montant
+  ascendant, Libellé descendant, Date ascendant, `sortBy` inconnu retombant sur Date
+  descendant). **Non validé en conditions réelles** : Docker n'était pas disponible dans
+  cette session, donc ni les tests d'intégration `BudgetDbContextPostgresTests`/
+  `BudgetPrevisionnel.Api.Tests` (Testcontainers) ni un test manuel contre le vrai Postgres
+  local n'ont pu tourner - à refaire par Ethan avant de faire confiance au tri sur
+  `Category`/`BankAccount` en particulier (jointures EF jamais exécutées contre un vrai
+  Postgres pour cette fonctionnalité).
 
 ### Lot 16 — Déploiement
 - VPS OVH ou Railway/Fly.io, pipeline CI/CD, application automatique des
